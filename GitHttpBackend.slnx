@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/GitHttpBackend.Server/GitHttpBackend.Server.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/GitHttpBackend.AspNetCore/GitHttpBackend.AspNetCore.csproj" />
+    <Project Path="src/GitHttpBackend/GitHttpBackend.csproj" />
+  </Folder>
+</Solution>

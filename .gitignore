@@ -1,0 +1,9 @@
+/samples/GitHttpBackend.Server/bin
+/samples/GitHttpBackend.Server/appsettings.json
+/samples/GitHttpBackend.Server/obj
+/samples/GitHttpBackend.Server/obj
+/src/GitHttpBackend.AspNetCore/bin
+/src/GitHttpBackend.AspNetCore/obj
+/src/GitHttpBackend/bin
+/src/GitHttpBackend/obj
+*.user

@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>GitHttpBackend.AspNetCore</PackageId>
+    <Version>0.1.0</Version>
+    <Description>ASP.NET Core adapter for GitHttpBackend. Adds MapGitHttpBackend() to serve Git repositories over Smart HTTP (clone / fetch / push) via git-http-backend, on Kestrel or any ASP.NET Core host.</Description>
+    <PackageTags>git;http;git-http-backend;smart-http;aspnetcore;kestrel;middleware</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Reference the shared framework, don't bundle ASP.NET Core into the package. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GitHttpBackend\GitHttpBackend.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -96,6 +96,27 @@ public sealed class GitHttpBackendInvoker
             }
         }
 
+        // Appended after ExtraEnvironment so a caller-supplied GIT_CONFIG_COUNT is extended,
+        // not overwritten. safe.directory is only honoured from system/global/env config —
+        // it cannot be set from the repository itself.
+        if (_options.SafeDirectories is { Count: > 0 } safeDirectories)
+        {
+            var index = env.TryGetValue("GIT_CONFIG_COUNT", out var existing)
+                && int.TryParse(existing, NumberStyles.Integer, CultureInfo.InvariantCulture, out var count)
+                && count > 0
+                    ? count
+                    : 0;
+
+            foreach (var directory in safeDirectories)
+            {
+                env[$"GIT_CONFIG_KEY_{index}"] = "safe.directory";
+                env[$"GIT_CONFIG_VALUE_{index}"] = directory;
+                index++;
+            }
+
+            env["GIT_CONFIG_COUNT"] = index.ToString(CultureInfo.InvariantCulture);
+        }
+
         var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
         process.Start();
 

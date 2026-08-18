@@ -58,10 +58,15 @@ if (useBasic)
     app.UseAuthorization();
 }
 
+// "Git:SafeDirectories": [ "*" ] — required when the host runs as a service account that does
+// not own the repository folders, otherwise git aborts with "dubious ownership" (empty HTTP 500).
+var safeDirectories = builder.Configuration.GetSection("Git:SafeDirectories").Get<string[]>();
+
 var options = new GitBackendOptions
 {
     ProjectRoot = projectRoot,
     ExportAll = true,
+    SafeDirectories = safeDirectories,
     // BackendPath = null -> auto-detected from the installed Git.
 
     // Per-user repo authorization. Only enforced when Basic auth is on; runs after

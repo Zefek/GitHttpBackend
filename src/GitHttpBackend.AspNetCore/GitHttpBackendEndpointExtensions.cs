@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace GitHttpBackend.AspNetCore;
 
@@ -32,6 +34,9 @@ public static class GitHttpBackendEndpointExtensions
 
     static async Task HandleAsync(HttpContext ctx, GitHttpBackendInvoker invoker, GitBackendOptions options)
     {
+        var logger = ctx.RequestServices.GetRequiredService<ILoggerFactory>()
+            .CreateLogger("GitHttpBackend.AspNetCore");
+
         var gitPath = ctx.Request.RouteValues["gitPath"] as string ?? "";
 
         var request = new CgiRequest
@@ -52,9 +57,14 @@ public static class GitHttpBackendEndpointExtensions
 
         if (options.Authorize is not null && !await options.Authorize(request))
         {
+            logger.LogWarning("Git request denied by Authorize hook: {Method} {PathInfo} (user {User})",
+                request.Method, request.PathInfo, request.RemoteUser ?? "-");
             ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
             return;
         }
+
+        logger.LogDebug("Invoking git-http-backend: {Method} PATH_INFO={PathInfo} QUERY_STRING={QueryString}",
+            request.Method, request.PathInfo, request.QueryString);
 
         await using var response = await invoker.InvokeAsync(request, ctx.RequestAborted);
 
@@ -68,5 +78,24 @@ public static class GitHttpBackendEndpointExtensions
         ctx.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
 
         await response.Body.CopyToAsync(ctx.Response.Body, ctx.RequestAborted);
+
+        // git-http-backend reports failures (die -> "Status: 500", empty body) only on stderr.
+        // Without this the caller sees a bare 500 and the reason is lost.
+        if (response.StatusCode >= 400)
+        {
+            var stderr = (await response.ReadErrorOutputAsync()).Trim();
+            logger.LogError(
+                "git-http-backend failed with {StatusCode} {Reason} for {Method} {PathInfo}?{QueryString}. stderr: {StdErr}",
+                response.StatusCode, response.ReasonPhrase, request.Method, request.PathInfo,
+                request.QueryString, stderr.Length > 0 ? stderr : "(empty)");
+        }
+        else if (logger.IsEnabled(LogLevel.Debug))
+        {
+            var stderr = (await response.ReadErrorOutputAsync()).Trim();
+            if (stderr.Length > 0)
+            {
+                logger.LogDebug("git-http-backend stderr: {StdErr}", stderr);
+            }
+        }
     }
 }

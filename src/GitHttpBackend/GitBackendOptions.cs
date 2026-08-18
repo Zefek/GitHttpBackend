@@ -24,6 +24,19 @@ public sealed class GitBackendOptions
     public string? BackendPath { get; init; }
 
     /// <summary>
+    /// Directories git should accept regardless of their owner, passed as <c>safe.directory</c>
+    /// entries. Use <c>"*"</c> for all, or list repository paths explicitly.
+    /// <para>
+    /// Needed whenever the host process runs under an account that does not own the repository
+    /// directories — a Windows service (LocalSystem, NETWORK SERVICE, gMSA), an IIS app pool,
+    /// or a container running as a different UID. Without it git aborts with
+    /// <c>fatal: detected dubious ownership in repository at '...'</c>, which git-http-backend
+    /// reports as an empty HTTP 500.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<string>? SafeDirectories { get; init; }
+
+    /// <summary>
     /// Extra environment variables handed to the git-http-backend process. Applied last,
     /// so they win over the variables this library sets.
     /// </summary>

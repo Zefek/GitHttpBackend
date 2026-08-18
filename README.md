@@ -98,6 +98,35 @@ The sample gates the whole endpoint. To allow anonymous clone but require auth f
 use `GitBackendOptions.Authorize` (it sees `PathInfo` — `git-receive-pack` is push) or a
 custom authorization policy keyed on the path. Not wired in the sample yet.
 
+## Running as a service account
+
+When the host process does not own the repository folders — a Windows service (LocalSystem,
+NETWORK SERVICE, gMSA), an IIS app pool, or a container running as a different UID — git
+refuses to touch them:
+
+```
+fatal: detected dubious ownership in repository at 'D:\git-repos\projekt'
+```
+
+`git-http-backend` reports that as an **empty HTTP 500** (the reason only ever reaches stderr),
+so clients just see `The requested URL returned error: 500`. It works when you run the app
+interactively and breaks the moment it runs as a service.
+
+Declare the repositories as trusted:
+
+```csharp
+var options = new GitBackendOptions
+{
+    ProjectRoot     = @"D:\git-repos",
+    SafeDirectories = ["*"],   // or list the repository paths explicitly
+};
+```
+
+In the sample this is `"Git:SafeDirectories": [ "*" ]` in `appsettings.json`. The entries become
+`safe.directory` config for the backend process only — no machine-wide `git config --system`
+change and no profile for the service account. Alternatively, make the service account the owner
+of `ProjectRoot`.
+
 ## Notes / known limitations
 
 - **Chunked uploads** (large pushes over `http.postBuffer`) arrive without a

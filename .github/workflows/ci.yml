@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+    paths-ignore: [ "**.md", "LICENSE" ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # SourceLink / EmbedUntrackedSources potřebuje git historii, ne shallow clone.
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Obnovení závislostí
+        run: dotnet restore GitHttpBackend.slnx
+
+      - name: Build
+        run: dotnet build GitHttpBackend.slnx --configuration Release --no-restore
+
+      # Jen validace metadat balíčků — nikam se nepushuje. Odhalí chybu v .csproj dřív,
+      # než na ni narazí release-nuget.yml, kdy už je tag vytvořený.
+      - name: Kontrola NuGet balíčků
+        run: |
+          dotnet pack src/GitHttpBackend/GitHttpBackend.csproj --configuration Release --no-build --output artifacts
+          dotnet pack src/GitHttpBackend.AspNetCore/GitHttpBackend.AspNetCore.csproj --configuration Release --no-build --output artifacts
+
+      # Stejné parametry jako samples/.../PublishProfiles/FolderProfile.pubxml.
+      # Self-contained proto, aby na cílovém serveru nemusel být .NET 10 runtime.
+      - name: Publish aplikace
+        run: >
+          dotnet publish samples/GitHttpBackend.Server
+          --configuration Release
+          --runtime win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          --output ./publish_output
+
+      - name: Nahrání do Artifactů
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: GitHttpBackend.Server
+          path: ./publish_output
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,19 @@
+<Project>
+  <!--
+    Package metadata shared by both libraries, so the two cannot drift apart.
+    This lives in .targets rather than .props because IsPackable is set inside the
+    project body, which is evaluated after Directory.Build.props is imported.
+  -->
+  <PropertyGroup Condition="'$(IsPackable)' != 'false'">
+    <Authors>Zefek</Authors>
+    <Copyright>Copyright (c) 2026 Zefek</Copyright>
+    <PackageProjectUrl>https://github.com/Zefek/GitHttpBackend</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Zefek/GitHttpBackend</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(IsPackable)' != 'false'">
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+</Project>

@@ -7,6 +7,17 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// --- Windows service hosting ---------------------------------------------------------
+// No-op unless the process was actually started by the SCM, so `dotnet run` is unaffected.
+// It also pins the content root to AppContext.BaseDirectory — a service starts with
+// C:\Windows\System32 as its working directory, which is where appsettings.json would
+// otherwise be looked for.
+if (OperatingSystem.IsWindows())
+{
+    builder.Services.AddWindowsService(options => options.ServiceName = "GitHttpBackend");
+    builder.Logging.AddEventLog();   // start/stop and startup failures reach the Event Log
+}
+
 // Where the bare repositories live. Configure via appsettings.json ("Git:ProjectRoot"),
 // environment variable Git__ProjectRoot, or --Git:ProjectRoot on the command line.
 var configuredRoot = builder.Configuration["Git:ProjectRoot"];

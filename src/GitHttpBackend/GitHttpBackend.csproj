@@ -3,7 +3,7 @@
   <PropertyGroup>
     <!-- NuGet package metadata -->
     <PackageId>GitHttpBackend</PackageId>
-    <Version>0.1.0</Version>
+    <!-- Version comes from VersionPrefix in Directory.Build.props, overridden by CI from the git tag. -->
     <Description>Host-agnostic bridge that runs Git's git-http-backend CGI and adapts it to a plain request/response model. The reusable core of a Git Smart HTTP server; no ASP.NET dependency.</Description>
     <PackageTags>git;http;git-http-backend;smart-http;cgi;server</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

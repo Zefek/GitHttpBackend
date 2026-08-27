@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <PackageId>GitHttpBackend.AspNetCore</PackageId>
-    <Version>0.1.0</Version>
+    <!-- Version comes from VersionPrefix in Directory.Build.props, overridden by CI from the git tag. -->
     <Description>ASP.NET Core adapter for GitHttpBackend. Adds MapGitHttpBackend() to serve Git repositories over Smart HTTP (clone / fetch / push) via git-http-backend, on Kestrel or any ASP.NET Core host.</Description>
     <PackageTags>git;http;git-http-backend;smart-http;aspnetcore;kestrel;middleware</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

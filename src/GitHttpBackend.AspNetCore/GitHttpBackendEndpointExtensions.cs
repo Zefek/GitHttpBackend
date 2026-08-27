@@ -43,9 +43,7 @@ public static class GitHttpBackendEndpointExtensions
         {
             Method = ctx.Request.Method,
             PathInfo = "/" + gitPath,
-            QueryString = ctx.Request.QueryString.HasValue
-                ? ctx.Request.QueryString.Value!.TrimStart('?')
-                : "",
+            QueryString = ctx.Request.QueryString.Value?.TrimStart('?') ?? "",
             ContentType = ctx.Request.ContentType,
             ContentLength = ctx.Request.ContentLength,
             ContentEncoding = ctx.Request.Headers.ContentEncoding.ToString() is { Length: > 0 } ce ? ce : null,

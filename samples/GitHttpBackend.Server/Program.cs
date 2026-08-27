@@ -1,6 +1,7 @@
 using GitHttpBackend;
 using GitHttpBackend.AspNetCore;
 using GitHttpBackend.AspNetCore.Authentication;
+using GitHttpBackend.Server;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -46,17 +47,7 @@ if (useBasic)
         .AddGitBasicAuthentication(options =>
         {
             options.Realm = "Git";
-            options.ValidateCredentialsAsync = creds =>
-            {
-                var ok = users.TryGetValue(creds.Username, out var entry)
-                         && FixedTimeEquals(entry.Password, creds.Password);
-                ClaimsPrincipal? principal = ok
-                    ? new ClaimsPrincipal(new ClaimsIdentity(
-                        new[] { new Claim(ClaimTypes.Name, creds.Username) },
-                        GitBasicAuthenticationHandler.SchemeName))
-                    : null;
-                return Task.FromResult(principal);
-            };
+            options.ValidateCredentialsAsync = creds => Task.FromResult(Authenticate(users, creds));
         });
     builder.Services.AddAuthorization();
 }
@@ -83,15 +74,7 @@ var options = new GitBackendOptions
     // Per-user repo authorization. Only enforced when Basic auth is on; runs after
     // authentication, so an authenticated-but-unlisted repo yields 403 (not a re-prompt).
     Authorize = useBasic
-        ? req =>
-        {
-            var repo = RepoFromPath(req.PathInfo);
-            var allowed = repo is not null
-                && req.RemoteUser is not null
-                && users.TryGetValue(req.RemoteUser, out var entry)
-                && IsRepoAllowed(entry, repo);
-            return ValueTask.FromResult(allowed);
-        }
+        ? req => ValueTask.FromResult(IsAuthorized(users, req))
         : null,
 };
 
@@ -119,11 +102,11 @@ if (useBasic)
     home.RequireAuthorization();
 }
 
-app.Logger.LogInformation("Serving git repositories from {ProjectRoot}", projectRoot);
-app.Logger.LogInformation("Auth mode: {AuthMode}", useBasic ? "basic" : "none");
-app.Logger.LogInformation("git-http-backend: {BackendPath}", new GitHttpBackendInvoker(options).BackendPath);
+app.Logger.LogInformation(
+    "Serving git repositories from {ProjectRoot} (auth mode: {AuthMode}, git-http-backend: {BackendPath})",
+    projectRoot, useBasic ? "basic" : "none", new GitHttpBackendInvoker(options).BackendPath);
 
-app.Run();
+await app.RunAsync();
 
 // Scans ProjectRoot for bare repositories and renders a self-contained HTML index.
 // A "repo" is a top-level directory named *.git, or one holding a HEAD file + objects/
@@ -132,52 +115,8 @@ app.Run();
 static string RenderHomePage(string projectRoot, HttpRequest request, Func<string, bool> canAccess)
 {
     var baseUrl = $"{request.Scheme}://{request.Host}{request.PathBase}".TrimEnd('/');
-
-    var repos = new List<(string Name, string Description, DateTime LastActivity)>();
-    if (Directory.Exists(projectRoot))
-    {
-        foreach (var dir in Directory.EnumerateDirectories(projectRoot))
-        {
-            var isBare = dir.EndsWith(".git", StringComparison.OrdinalIgnoreCase)
-                || (File.Exists(Path.Combine(dir, "HEAD")) && Directory.Exists(Path.Combine(dir, "objects")));
-            if (!isBare)
-                continue;
-
-            var name = Path.GetFileName(dir);
-            if (!canAccess(name))
-                continue;
-            repos.Add((name, ReadDescription(dir), LastActivity(dir)));
-        }
-    }
-    repos.Sort((a, b) => b.LastActivity.CompareTo(a.LastActivity));
-
-    var rows = new StringBuilder();
-    if (repos.Count == 0)
-    {
-        rows.Append($"""
-            <tr><td colspan="2" class="empty">No repositories found in <code>{Enc(projectRoot)}</code>.
-            Create one with <code>git init --bare myproject.git</code> inside that folder.</td></tr>
-            """);
-    }
-    else
-    {
-        foreach (var (name, description, lastActivity) in repos)
-        {
-            var cloneUrl = $"{baseUrl}/{name}";
-            rows.Append($"""
-                <tr>
-                  <td>
-                    <div class="name">{Enc(name)}</div>
-                    {(description.Length > 0 ? $"<div class=\"desc\">{Enc(description)}</div>" : "")}
-                    <div class="meta">updated {Enc(lastActivity.ToString("yyyy-MM-dd HH:mm"))}</div>
-                  </td>
-                  <td class="clone">
-                    <code>git clone {Enc(cloneUrl)}</code>
-                  </td>
-                </tr>
-                """);
-        }
-    }
+    var repos = FindRepositories(projectRoot, canAccess);
+    var rows = RenderRows(repos, baseUrl, projectRoot);
 
     return $$"""
         <!doctype html>
@@ -226,6 +165,63 @@ static string RenderHomePage(string projectRoot, HttpRequest request, Func<strin
         """;
 }
 
+// Bare repositories the caller may see, newest activity first.
+static List<(string Name, string Description, DateTime LastActivity)> FindRepositories(
+    string projectRoot, Func<string, bool> canAccess)
+{
+    var repos = new List<(string Name, string Description, DateTime LastActivity)>();
+    if (!Directory.Exists(projectRoot))
+        return repos;
+
+    foreach (var dir in Directory.EnumerateDirectories(projectRoot))
+    {
+        var isBare = dir.EndsWith(".git", StringComparison.OrdinalIgnoreCase)
+            || (File.Exists(Path.Combine(dir, "HEAD")) && Directory.Exists(Path.Combine(dir, "objects")));
+        if (!isBare)
+            continue;
+
+        var name = Path.GetFileName(dir);
+        if (!canAccess(name))
+            continue;
+        repos.Add((name, ReadDescription(dir), LastActivity(dir)));
+    }
+
+    repos.Sort((a, b) => b.LastActivity.CompareTo(a.LastActivity));
+    return repos;
+}
+
+// The <tr> rows for the repository table, or a single "nothing here" row.
+static string RenderRows(
+    List<(string Name, string Description, DateTime LastActivity)> repos, string baseUrl, string projectRoot)
+{
+    if (repos.Count == 0)
+    {
+        return $"""
+            <tr><td colspan="2" class="empty">No repositories found in <code>{Enc(projectRoot)}</code>.
+            Create one with <code>git init --bare myproject.git</code> inside that folder.</td></tr>
+            """;
+    }
+
+    var rows = new StringBuilder();
+    foreach (var (name, description, lastActivity) in repos)
+    {
+        var cloneUrl = $"{baseUrl}/{name}";
+        rows.Append($"""
+            <tr>
+              <td>
+                <div class="name">{Enc(name)}</div>
+                {(description.Length > 0 ? $"<div class=\"desc\">{Enc(description)}</div>" : "")}
+                <div class="meta">updated {Enc(lastActivity.ToString("yyyy-MM-dd HH:mm"))}</div>
+              </td>
+              <td class="clone">
+                <code>git clone {Enc(cloneUrl)}</code>
+              </td>
+            </tr>
+            """);
+    }
+    return rows.ToString();
+}
+
 // The repo's one-line description, unless it's Git's default placeholder.
 static string ReadDescription(string repoDir)
 {
@@ -255,14 +251,22 @@ static DateTime LastActivity(string repoDir)
     {
         try
         {
-            var t = File.Exists(c) ? File.GetLastWriteTime(c)
-                  : Directory.Exists(c) ? Directory.GetLastWriteTime(c)
-                  : DateTime.MinValue;
+            var t = LastWriteTime(c);
             if (t > latest) latest = t;
         }
         catch { /* ignore */ }
     }
     return latest;
+}
+
+// Last write time of a file or directory; DateTime.MinValue when the path does not exist.
+static DateTime LastWriteTime(string path)
+{
+    if (File.Exists(path))
+        return File.GetLastWriteTime(path);
+    if (Directory.Exists(path))
+        return Directory.GetLastWriteTime(path);
+    return DateTime.MinValue;
 }
 
 static string Enc(string s) => System.Net.WebUtility.HtmlEncode(s);
@@ -288,6 +292,30 @@ static bool IsRepoAllowed(UserAccess entry, string repo)
     => entry.Repos.Any(r => r == "*"
         || string.Equals(NormalizeRepo(r), repo, StringComparison.OrdinalIgnoreCase));
 
+// Checks Basic credentials against the configured users. Returns null to reject.
+static ClaimsPrincipal? Authenticate(Dictionary<string, UserAccess> users, BasicCredentials creds)
+{
+    if (!users.TryGetValue(creds.Username, out var entry)
+        || !FixedTimeEquals(entry.Password, creds.Password))
+    {
+        return null;
+    }
+
+    return new ClaimsPrincipal(new ClaimsIdentity(
+        [new Claim(ClaimTypes.Name, creds.Username)],
+        GitBasicAuthenticationHandler.SchemeName));
+}
+
+// True when the authenticated user may access the repository named in the request path.
+static bool IsAuthorized(Dictionary<string, UserAccess> users, CgiRequest request)
+{
+    var repo = RepoFromPath(request.PathInfo);
+    return repo is not null
+        && request.RemoteUser is not null
+        && users.TryGetValue(request.RemoteUser, out var entry)
+        && IsRepoAllowed(entry, repo);
+}
+
 // Constant-time comparison so credential checks don't leak length/content via timing.
 static bool FixedTimeEquals(string a, string b)
 {
@@ -299,11 +327,4 @@ static bool FixedTimeEquals(string a, string b)
     SHA256.HashData(ba, ha);
     SHA256.HashData(bb, hb);
     return CryptographicOperations.FixedTimeEquals(ha, hb);
-}
-
-// A configured user: password/token plus the repos they may access ("*" = all).
-sealed class UserAccess
-{
-    public string Password { get; set; } = "";
-    public string[] Repos { get; set; } = [];
 }

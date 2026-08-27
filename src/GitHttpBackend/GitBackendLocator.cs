@@ -45,11 +45,20 @@ public static class GitBackendLocator
 
     static string? TryGitExecPath()
     {
+        // Resolved to a full path first: with UseShellExecute = false a bare "git" would be
+        // looked up by the OS starting at the application and current directories, so a
+        // stray git.exe next to the host process could win over the installed one.
+        var gitExe = ResolveGitExecutable();
+        if (gitExe is null)
+        {
+            return null;
+        }
+
         try
         {
             using var p = Process.Start(new ProcessStartInfo
             {
-                FileName = "git",
+                FileName = gitExe,
                 Arguments = "--exec-path",
                 RedirectStandardOutput = true,
                 UseShellExecute = false,
@@ -68,6 +77,45 @@ public static class GitBackendLocator
         {
             return null;
         }
+    }
+
+    // Walks PATH explicitly, then the well-known Git for Windows install roots, and returns
+    // the first existing git executable as an absolute path.
+    static string? ResolveGitExecutable()
+    {
+        var exe = OperatingSystem.IsWindows() ? "git.exe" : "git";
+
+        var path = Environment.GetEnvironmentVariable("PATH") ?? "";
+        foreach (var dir in path.Split(Path.PathSeparator,
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            try
+            {
+                var candidate = Path.Combine(dir.Trim('"'), exe);
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+            }
+            catch (ArgumentException)
+            {
+                // Malformed PATH entry (invalid path characters) — skip it, keep scanning.
+            }
+        }
+
+        foreach (var root in WindowsGitRoots())
+        {
+            foreach (var sub in new[] { "cmd", "bin" })
+            {
+                var candidate = Path.Combine(root, sub, exe);
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+            }
+        }
+
+        return null;
     }
 
     static IEnumerable<string> WindowsGitRoots()

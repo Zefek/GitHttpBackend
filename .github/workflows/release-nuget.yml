@@ -22,12 +22,12 @@ jobs:
       id-token: write   # OIDC token pro výměnu za dočasný NuGet API klíč
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
           dotnet-version: 10.0.x
 
@@ -74,7 +74,7 @@ jobs:
       # Žádá se až těsně před pushem, jeden token lze vyměnit jen jednou.
       - name: NuGet login (OIDC)
         id: login
-        uses: NuGet/login@v1
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1
         with:
           user: ${{ secrets.NUGET_USER }}   # profilové jméno na nuget.org, ne e-mail
 

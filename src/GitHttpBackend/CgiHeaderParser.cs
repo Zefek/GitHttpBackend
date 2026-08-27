@@ -30,7 +30,7 @@ internal static class CgiHeaderParser
                 break; // EOF before a blank line — treat everything as headers
             }
 
-            ms.Write(buf, 0, n);
+            await ms.WriteAsync(buf.AsMemory(0, n), ct).ConfigureAwait(false);
 
             (sepIndex, sepLen) = FindSeparator(ms.GetBuffer(), (int)ms.Length);
             if (sepIndex >= 0)
@@ -49,11 +49,18 @@ internal static class CgiHeaderParser
         int headerLen = sepIndex >= 0 ? sepIndex : total;
         int bodyStart = sepIndex >= 0 ? sepIndex + sepLen : total;
 
-        var headerText = Encoding.ASCII.GetString(all, 0, headerLen);
-
         var leftover = new byte[total - bodyStart];
         Array.Copy(all, bodyStart, leftover, 0, leftover.Length);
 
+        var (status, reason, headers) = ParseHeaderBlock(Encoding.ASCII.GetString(all, 0, headerLen));
+        return new Result(status, reason, headers, leftover);
+    }
+
+    // Splits the header block into the HTTP status and the headers to pass through.
+    // CGI carries the status in a "Status: <code> <reason>" pseudo-header; everything
+    // else is a real response header. Lines without a colon are ignored.
+    static (int Status, string Reason, List<KeyValuePair<string, string>> Headers) ParseHeaderBlock(string headerText)
+    {
         int status = 200;
         string reason = "OK";
         var headers = new List<KeyValuePair<string, string>>();
@@ -61,11 +68,6 @@ internal static class CgiHeaderParser
         foreach (var rawLine in headerText.Split('\n'))
         {
             var line = rawLine.TrimEnd('\r');
-            if (line.Length == 0)
-            {
-                continue;
-            }
-
             int colon = line.IndexOf(':');
             if (colon < 0)
             {
@@ -81,7 +83,7 @@ internal static class CgiHeaderParser
                 headers.Add(new KeyValuePair<string, string>(name, value));
         }
 
-        return new Result(status, reason, headers, leftover);
+        return (status, reason, headers);
     }
 
     // Finds the header/body separator: "\n\n" (len 2) or "\r\n\r\n" (len 4), whichever comes first.

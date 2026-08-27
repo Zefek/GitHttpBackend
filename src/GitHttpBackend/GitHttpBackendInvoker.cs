@@ -28,7 +28,9 @@ public sealed class GitHttpBackendInvoker
         if (!File.Exists(_backendPath))
             throw new FileNotFoundException("git-http-backend was not found at the configured path.", _backendPath);
 
-        _execDir = Path.GetDirectoryName(_backendPath)!;
+        _execDir = Path.GetDirectoryName(_backendPath)
+            ?? throw new InvalidOperationException(
+                $"The git-http-backend path '{_backendPath}' has no parent directory.");
     }
 
     /// <summary>The resolved path to the git-http-backend executable.</summary>
@@ -49,7 +51,44 @@ public sealed class GitHttpBackendInvoker
             WorkingDirectory = _execDir,
         };
 
-        var env = psi.Environment;
+        PopulateEnvironment(psi.Environment, request);
+
+        var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
+        process.Start();
+
+        // Pump request body -> stdin and drain stderr concurrently with reading stdout,
+        // so a large body or verbose diagnostics can't deadlock on a full pipe buffer.
+        var stdinTask = PumpStdinAsync(process, request.Body, ct);
+        var stderrTask = process.StandardError.ReadToEndAsync(ct);
+
+        try
+        {
+            var stdout = process.StandardOutput.BaseStream;
+            var parsed = await CgiHeaderParser.ReadAsync(stdout, ct).ConfigureAwait(false);
+
+            var body = new ConcatStream(parsed.Leftover, stdout);
+            return new GitBackendResponse(
+                parsed.StatusCode, parsed.ReasonPhrase, parsed.Headers, body,
+                process, stdinTask, stderrTask);
+        }
+        catch
+        {
+            try 
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+            }
+            catch { /* ignore */ }
+            process.Dispose();
+            throw;
+        }
+    }
+
+    // Builds the CGI environment git-http-backend expects for this request.
+    void PopulateEnvironment(IDictionary<string, string?> env, CgiRequest request)
+    {
         env["GIT_PROJECT_ROOT"] = _options.ProjectRoot;
         if (_options.ExportAll)
         {
@@ -101,53 +140,26 @@ public sealed class GitHttpBackendInvoker
         // it cannot be set from the repository itself.
         if (_options.SafeDirectories is { Count: > 0 } safeDirectories)
         {
-            var index = env.TryGetValue("GIT_CONFIG_COUNT", out var existing)
-                && int.TryParse(existing, NumberStyles.Integer, CultureInfo.InvariantCulture, out var count)
-                && count > 0
-                    ? count
-                    : 0;
-
-            foreach (var directory in safeDirectories)
-            {
-                env[$"GIT_CONFIG_KEY_{index}"] = "safe.directory";
-                env[$"GIT_CONFIG_VALUE_{index}"] = directory;
-                index++;
-            }
-
-            env["GIT_CONFIG_COUNT"] = index.ToString(CultureInfo.InvariantCulture);
+            AppendSafeDirectories(env, safeDirectories);
         }
+    }
 
-        var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
-        process.Start();
+    static void AppendSafeDirectories(IDictionary<string, string?> env, IReadOnlyList<string> safeDirectories)
+    {
+        var index = env.TryGetValue("GIT_CONFIG_COUNT", out var existing)
+            && int.TryParse(existing, NumberStyles.Integer, CultureInfo.InvariantCulture, out var count)
+            && count > 0
+                ? count
+                : 0;
 
-        // Pump request body -> stdin and drain stderr concurrently with reading stdout,
-        // so a large body or verbose diagnostics can't deadlock on a full pipe buffer.
-        var stdinTask = PumpStdinAsync(process, request.Body, ct);
-        var stderrTask = process.StandardError.ReadToEndAsync(ct);
-
-        try
+        foreach (var directory in safeDirectories)
         {
-            var stdout = process.StandardOutput.BaseStream;
-            var parsed = await CgiHeaderParser.ReadAsync(stdout, ct).ConfigureAwait(false);
+            env[$"GIT_CONFIG_KEY_{index}"] = "safe.directory";
+            env[$"GIT_CONFIG_VALUE_{index}"] = directory;
+            index++;
+        }
 
-            var body = new ConcatStream(parsed.Leftover, stdout);
-            return new GitBackendResponse(
-                parsed.StatusCode, parsed.ReasonPhrase, parsed.Headers, body,
-                process, stdinTask, stderrTask);
-        }
-        catch
-        {
-            try 
-            {
-                if (!process.HasExited)
-                {
-                    process.Kill(entireProcessTree: true);
-                }
-            }
-            catch { /* ignore */ }
-            process.Dispose();
-            throw;
-        }
+        env["GIT_CONFIG_COUNT"] = index.ToString(CultureInfo.InvariantCulture);
     }
 
     static async Task PumpStdinAsync(Process process, Stream body, CancellationToken ct)

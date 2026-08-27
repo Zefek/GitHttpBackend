@@ -56,13 +56,13 @@ public static class GitHttpBackendEndpointExtensions
         if (options.Authorize is not null && !await options.Authorize(request))
         {
             logger.LogWarning("Git request denied by Authorize hook: {Method} {PathInfo} (user {User})",
-                request.Method, request.PathInfo, request.RemoteUser ?? "-");
+                ForLog(request.Method), ForLog(request.PathInfo), ForLog(request.RemoteUser) ?? "-");
             ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
             return;
         }
 
         logger.LogDebug("Invoking git-http-backend: {Method} PATH_INFO={PathInfo} QUERY_STRING={QueryString}",
-            request.Method, request.PathInfo, request.QueryString);
+            ForLog(request.Method), ForLog(request.PathInfo), ForLog(request.QueryString));
 
         await using var response = await invoker.InvokeAsync(request, ctx.RequestAborted);
 
@@ -84,16 +84,26 @@ public static class GitHttpBackendEndpointExtensions
             var stderr = (await response.ReadErrorOutputAsync()).Trim();
             logger.LogError(
                 "git-http-backend failed with {StatusCode} {Reason} for {Method} {PathInfo}?{QueryString}. stderr: {StdErr}",
-                response.StatusCode, response.ReasonPhrase, request.Method, request.PathInfo,
-                request.QueryString, stderr.Length > 0 ? stderr : "(empty)");
+                response.StatusCode, response.ReasonPhrase, ForLog(request.Method), ForLog(request.PathInfo),
+                ForLog(request.QueryString), stderr.Length > 0 ? ForLog(stderr) : "(empty)");
         }
         else if (logger.IsEnabled(LogLevel.Debug))
         {
             var stderr = (await response.ReadErrorOutputAsync()).Trim();
             if (stderr.Length > 0)
             {
-                logger.LogDebug("git-http-backend stderr: {StdErr}", stderr);
+                logger.LogDebug("git-http-backend stderr: {StdErr}", ForLog(stderr));
             }
         }
     }
+
+    // Text taken from the request reaches most log providers verbatim, so a CR or LF inside a
+    // path, query string or user name could forge extra log entries (CWE-117). Line breaks are
+    // flattened to spaces; everything else — including non-ASCII repository names — is kept.
+    // git's stderr goes through this too: it quotes the requested path back in its error
+    // messages, which is the same request data taking a detour through the child process.
+    // Replace(char, char) returns the same instance when there is nothing to replace, so the
+    // common case allocates nothing.
+    static string? ForLog(string? value)
+        => value?.Replace('\r', ' ').Replace('\n', ' ');
 }

@@ -1,0 +1,38 @@
+name: Deploy na Windows službu
+
+# Nasazuje artefakt konkrétního běhu CI, takže lze kdykoli nasadit i starší ověřený build.
+# Run ID najdeš v URL běhu CI: .../actions/runs/<run_id>
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_run_id:
+        description: 'ID běhu CI s artefaktem'
+        required: true
+        type: string
+      artifact_name:
+        description: 'Název artefaktu'
+        required: false
+        default: 'GitHttpBackend.Server'
+        type: string
+      environment:
+        required: true
+        type: choice
+        options:
+          - Home
+
+permissions:
+  contents: read
+  actions: read
+  deployments: write
+
+jobs:
+  deploy:
+    uses: Zefek/GithubActions/.github/workflows/windows-service-deploy.yml@v1
+    with:
+      environment:     ${{ inputs.environment }}
+      artifact_run_id: ${{ inputs.artifact_run_id }}
+      # Nutné předat explicitně — default reusable workflow je 'IoTDeployer'.
+      artifact_name:   ${{ inputs.artifact_name }}
+      # Musí odpovídat názvu složky s deploy.ps1 v konfiguračním repu (vars.REPO).
+      device_name:     GitHttpBackend
+    secrets: inherit

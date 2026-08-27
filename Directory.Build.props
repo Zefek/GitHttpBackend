@@ -7,4 +7,9 @@
     <!-- Enable once the public API is stable:
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors> -->
   </PropertyGroup>
+
+  <!-- Fallback for local builds; CI overrides it from the git tag via -p:Version. -->
+  <PropertyGroup>
+    <VersionPrefix>0.1.0</VersionPrefix>
+  </PropertyGroup>
 </Project>

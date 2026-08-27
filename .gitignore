@@ -1,9 +1,11 @@
-/samples/GitHttpBackend.Server/bin
-/samples/GitHttpBackend.Server/appsettings.json
-/samples/GitHttpBackend.Server/obj
-/samples/GitHttpBackend.Server/obj
-/src/GitHttpBackend.AspNetCore/bin
-/src/GitHttpBackend.AspNetCore/obj
-/src/GitHttpBackend/bin
-/src/GitHttpBackend/obj
+[Bb]in/
+[Oo]bj/
+artifacts/
+publish_output/
+*.nupkg
+*.snupkg
+.vs/
 *.user
+
+# Konfigurace s tajemstvími; na serveru ji dodává deploy.ps1 z konfiguračního repa.
+/samples/GitHttpBackend.Server/appsettings.json

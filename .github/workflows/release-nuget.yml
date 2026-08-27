@@ -12,13 +12,14 @@ on:
         required: true
         type: string
 
-permissions:
-  contents: write   # gh release create
-
 jobs:
   release:
     runs-on: ubuntu-latest
+    # Musí odpovídat poli Environment v trusted publishing politice na nuget.org.
     environment: nuget
+    permissions:
+      contents: write   # gh release create
+      id-token: write   # OIDC token pro výměnu za dočasný NuGet API klíč
 
     steps:
       - uses: actions/checkout@v7
@@ -69,10 +70,18 @@ jobs:
           done
           ls -l artifacts
 
+      # Trusted publishing: OIDC token -> dočasný API klíč platný 1 hodinu.
+      # Žádá se až těsně před pushem, jeden token lze vyměnit jen jednou.
+      - name: NuGet login (OIDC)
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}   # profilové jméno na nuget.org, ne e-mail
+
       # Odpovídající .snupkg se pushne automaticky spolu s .nupkg ze stejné složky.
       - name: Push na nuget.org
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
         run: >
           dotnet nuget push "artifacts/*.nupkg"
           --api-key "$NUGET_API_KEY"

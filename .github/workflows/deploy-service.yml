@@ -35,4 +35,3 @@ jobs:
       artifact_name:   ${{ inputs.artifact_name }}
       # Musí odpovídat názvu složky s deploy.ps1 v konfiguračním repu (vars.REPO).
       device_name:     GitHttpBackend
-    secrets: inherit

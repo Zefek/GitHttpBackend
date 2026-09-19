@@ -158,6 +158,33 @@ In the sample this is `"Git:SafeDirectories": [ "*" ]` in `appsettings.json`. Th
 change and no profile for the service account. Alternatively, make the service account the owner
 of `ProjectRoot`.
 
+## Behind a reverse proxy
+
+The intended topology is Kestrel bound to loopback with a reverse proxy terminating HTTPS in
+front of it — which is what makes Basic auth over a plaintext listener sound. In that
+topology every connection arrives from `127.0.0.1`, so unless the forwarded headers are read:
+
+- `REMOTE_ADDR` handed to git, and every log line the handler writes, says `127.0.0.1` for
+  every caller. "Which machine fetched this configuration" becomes unanswerable.
+- The home page builds clone URLs from the incoming request, so a user who arrived over
+  `https://` is offered `git clone http://…`.
+
+The sample reads `X-Forwarded-For` and `X-Forwarded-Proto` when you turn it on:
+
+```json
+"Git": {
+  "ForwardedHeaders": {
+    "Enabled": true,
+    "KnownProxies": [ "127.0.0.1", "::1" ]
+  }
+}
+```
+
+It is **off by default on purpose**. Trusting these headers when nothing is actually in front
+lets any client name its own source address, which makes the audit trail worse than blank —
+it makes it wrong. `KnownProxies` lists the addresses allowed to speak for someone else; it
+defaults to loopback and a forged header from anywhere else is ignored. Keep it narrow.
+
 ## Notes / known limitations
 
 - **Chunked uploads** (large pushes over `http.postBuffer`) arrive without a

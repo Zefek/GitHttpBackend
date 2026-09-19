@@ -158,6 +158,83 @@ In the sample this is `"Git:SafeDirectories": [ "*" ]` in `appsettings.json`. Th
 change and no profile for the service account. Alternatively, make the service account the owner
 of `ProjectRoot`.
 
+## Backing up
+
+The reason to host configuration in local bare repositories is history — being able to see
+what changed and roll back. In the deployment this project is built for, those repositories
+are deliberately *not* on GitHub, so that history exists in exactly one copy, on one disk. A
+disk failure does not lose a working tree. It loses every version ever recorded.
+
+There is a detail that makes this easy rather than awkward, and it is worth saying out loud:
+when the secrets inside those repositories are already **encrypted at rest** — with a
+certificate whose private key lives only on the machines that need to decrypt — the
+repository is safe to copy anywhere. Offsite backup of a repository full of secrets is
+normally the hard part. Here it is a file copy, because what leaves the machine is
+ciphertext.
+
+### The mirror clone
+
+```
+git clone --mirror D:\git-repos\projekt.git E:\zalohy\git\projekt.git
+git -C E:\zalohy\git\projekt.git remote update --prune
+```
+
+`--mirror` copies **all** refs, not just branches; `remote update --prune` keeps the copy
+current and drops refs deleted upstream. A mirror is itself a valid clone source, so there is
+no restore procedure to remember and no archive format to stay compatible with next year.
+
+### Where to put it
+
+A second physical disk, a NAS, or cloud storage. State the precondition plainly: sending a
+repository offsite is only safe when the secrets in it are encrypted **and the key is not in
+the backup**. Otherwise the backup is a plaintext copy of every secret you have.
+
+### Scheduling it
+
+[`samples/Backup-GitRepositories.ps1`](samples/Backup-GitRepositories.ps1) walks every bare
+repository under `ProjectRoot`, cloning on the first run and updating afterwards:
+
+```
+.\Backup-GitRepositories.ps1 -ProjectRoot D:\git-repos -BackupRoot E:\zalohy\git
+```
+
+It exits non-zero when any repository fails, so a scheduled task reports the failure instead
+of quietly reporting success. Register it with Task Scheduler:
+
+```powershell
+$action  = New-ScheduledTaskAction -Execute 'powershell.exe' `
+    -Argument '-NoProfile -ExecutionPolicy Bypass -File "D:\scripts\Backup-GitRepositories.ps1" -ProjectRoot D:\git-repos -BackupRoot E:\zalohy\git'
+$trigger = New-ScheduledTaskTrigger -Daily -At 2am
+Register-ScheduledTask -TaskName 'Zaloha git repozitaru' -Action $action -Trigger $trigger `
+    -User 'SYSTEM' -RunLevel Highest
+```
+
+### Restoring
+
+`git clone` from the mirror. That is the whole procedure:
+
+```
+git clone E:\zalohy\git\projekt.git D:\git-repos\projekt.git --mirror
+```
+
+### Verifying
+
+A backup nobody has restored is a hypothesis. Pass `-Verify` to run `git fsck` on each
+mirror, or check one by hand:
+
+```
+git -C E:\zalohy\git\projekt.git fsck
+```
+
+Slower, so it suits a weekly run rather than an hourly one. Cloning from the backup into a
+temporary directory every so often turns the hypothesis into a fact.
+
+### What a mirror does not cover
+
+Server configuration itself: `appsettings.json` with its user list, and the reverse proxy
+configuration. Either back those up too, or accept that they are reproducible from this
+README — but decide which, rather than finding out during a restore.
+
 ## Notes / known limitations
 
 - **Chunked uploads** (large pushes over `http.postBuffer`) arrive without a

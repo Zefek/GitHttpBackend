@@ -177,10 +177,50 @@ git init --bare D:\git-repos\projekt.git
 git -C D:\git-repos\projekt.git config http.receivepack true
 ```
 
-Note that **everything under `ProjectRoot` is published** — `ExportAll` defaults to `true`,
-which tells `git-http-backend` to serve every repository it finds without requiring a
-`git-daemon-export-ok` marker. Treat `ProjectRoot` as the set of repositories you intend to
-serve, never as a scratch directory.
+### What `ProjectRoot` publishes
+
+**Everything under `ProjectRoot` is published.** `ExportAll` defaults to `true`, which sets
+`GIT_HTTP_EXPORT_ALL` and tells `git-http-backend` to serve every repository it finds,
+without requiring anything from the repository itself.
+
+That default is a deliberate choice, and it has a cost worth stating plainly: a repository
+restored from a backup, cloned in for a look, or copied there for ten minutes becomes
+reachable the moment it lands. There is no second step that publishes it. Git's marker
+mechanism exists precisely so publication is a deliberate act, and with `ExportAll` on, it
+is not.
+
+**So treat `ProjectRoot` as the set of repositories you intend to serve, and never as a
+scratch directory.** Anything you do not want reachable belongs elsewhere on disk — not in a
+subdirectory here, not temporarily.
+
+The default stays `true` because the alternative is its own trap. With it off, a repository
+that lacks the marker returns **404** — the same answer as a repository that does not exist.
+No error, no log on the client side, nothing to distinguish it from a mistyped name. A
+forgotten marker file is a repository that silently fails for a reason nobody can see, and
+for a `ProjectRoot` with a single owner, that costs more than it protects.
+
+#### Requiring the marker
+
+If you want publication to be explicit, it is one setting:
+
+```json
+"Git": { "ExportAll": false }
+```
+
+or `ExportAll = false` on `GitBackendOptions`. Each repository then needs an empty
+`git-daemon-export-ok` file in its root before it is served:
+
+```powershell
+New-Item -ItemType File D:\git-repos\projekt.git\git-daemon-export-ok
+```
+
+Worth doing when `ProjectRoot` is shared, when repositories arrive there by means other than
+someone deciding to publish them, or when a restore procedure drops copies next to the live
+ones. [Create on push](#create-on-push) writes the marker itself, so repositories created
+that way are reachable under either setting.
+
+This is a 1.x decision, not a permanent one — a future major version may flip the default,
+which is why it is spelled out here rather than left to be discovered.
 
 ### Create on push
 

@@ -120,10 +120,16 @@ var safeDirectories = builder.Configuration.GetSection("Git:SafeDirectories").Ge
 // default; with Basic auth on, only a user allowed to push to that name can trigger it.
 var allowCreateOnPush = builder.Configuration.GetValue<bool>("Git:AllowCreateOnPush");
 
+// "Git:ExportAll": false — require a git-daemon-export-ok marker in each repository before it
+// is served. Defaults to true, which publishes everything under ProjectRoot; that default is
+// documented in the README precisely because it is a real exposure, and this setting is how
+// it gets closed without recompiling.
+var exportAll = builder.Configuration.GetValue("Git:ExportAll", true);
+
 var options = new GitBackendOptions
 {
     ProjectRoot = projectRoot,
-    ExportAll = true,
+    ExportAll = exportAll,
     SafeDirectories = safeDirectories,
     AllowCreateOnPush = allowCreateOnPush,
     // BackendPath = null -> auto-detected from the installed Git.

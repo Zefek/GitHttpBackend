@@ -130,7 +130,7 @@ public sealed class GitHttpBackendInvoker
             WorkingDirectory = _execDir,
         };
 
-        PopulateEnvironment(psi.Environment, request);
+        PopulateEnvironment(psi.Environment, _options, _execDir, request);
 
         var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
         process.Start();
@@ -165,16 +165,18 @@ public sealed class GitHttpBackendInvoker
         }
     }
 
-    // Builds the CGI environment git-http-backend expects for this request.
-    void PopulateEnvironment(IDictionary<string, string?> env, CgiRequest request)
+    // Builds the CGI environment git-http-backend expects for this request. Static and
+    // internal so the mapping can be pinned by tests without starting a process.
+    internal static void PopulateEnvironment(
+        IDictionary<string, string?> env, GitBackendOptions options, string execDir, CgiRequest request)
     {
-        env["GIT_PROJECT_ROOT"] = _options.ProjectRoot;
-        if (_options.ExportAll)
+        env["GIT_PROJECT_ROOT"] = options.ProjectRoot;
+        if (options.ExportAll)
         {
             env["GIT_HTTP_EXPORT_ALL"] = "1";
         }
         // Help the backend locate git-upload-pack / git-receive-pack.
-        env["GIT_EXEC_PATH"] = _execDir;
+        env["GIT_EXEC_PATH"] = execDir;
 
         env["REQUEST_METHOD"] = request.Method;
         env["PATH_INFO"] = request.PathInfo;
@@ -206,9 +208,9 @@ public sealed class GitHttpBackendInvoker
             env["REMOTE_USER"] = request.RemoteUser;
         }
 
-        if (_options.ExtraEnvironment is not null)
+        if (options.ExtraEnvironment is not null)
         {
-            foreach (var kv in _options.ExtraEnvironment)
+            foreach (var kv in options.ExtraEnvironment)
             {
                 env[kv.Key] = kv.Value;
             }
@@ -217,7 +219,7 @@ public sealed class GitHttpBackendInvoker
         // Appended after ExtraEnvironment so a caller-supplied GIT_CONFIG_COUNT is extended,
         // not overwritten. safe.directory is only honoured from system/global/env config —
         // it cannot be set from the repository itself.
-        if (_options.SafeDirectories is { Count: > 0 } safeDirectories)
+        if (options.SafeDirectories is { Count: > 0 } safeDirectories)
         {
             AppendSafeDirectories(env, safeDirectories);
         }

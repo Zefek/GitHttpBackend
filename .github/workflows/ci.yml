@@ -31,6 +31,12 @@ jobs:
       - name: Build
         run: dotnet build GitHttpBackend.slnx --configuration Release --no-restore
 
+      # Správnost téhle knihovny závisí na chování git-http-backend, který se aktualizuje
+      # nezávisle na ní. Runner windows-latest má Git nainstalovaný, takže end-to-end testy
+      # opravdu poženou skutečný git klient proti hostovanému serveru.
+      - name: Testy
+        run: dotnet test GitHttpBackend.slnx --configuration Release --no-build
+
       # Jen validace metadat balíčků — nikam se nepushuje. Odhalí chybu v .csproj dřív,
       # než na ni narazí release-nuget.yml, kdy už je tag vytvořený.
       - name: Kontrola NuGet balíčků

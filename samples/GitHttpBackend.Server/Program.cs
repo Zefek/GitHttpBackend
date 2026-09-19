@@ -2,6 +2,8 @@ using GitHttpBackend;
 using GitHttpBackend.AspNetCore;
 using GitHttpBackend.AspNetCore.Authentication;
 using GitHttpBackend.Server;
+using Microsoft.AspNetCore.HttpOverrides;
+using System.Net;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -26,6 +28,48 @@ var projectRoot = string.IsNullOrWhiteSpace(configuredRoot)
     ? Path.Combine(AppContext.BaseDirectory, "repos")
     : configuredRoot;
 Directory.CreateDirectory(projectRoot);
+
+// --- Behind a reverse proxy ------------------------------------------------------------
+// The intended topology is Kestrel on loopback with a proxy terminating HTTPS in front. In
+// that topology every connection arrives from 127.0.0.1, so without these headers the audit
+// trail records the proxy instead of the caller, and the home page offers http:// clone URLs
+// to someone who arrived over https://.
+//
+// Off by default, and that default is the safe one: trusting X-Forwarded-For when nothing is
+// actually in front lets any client name its own source address, which makes the audit trail
+// worse than blank — it makes it wrong. KnownProxies is populated (loopback unless
+// configured) rather than widened, so a forged header from anywhere else is ignored.
+//
+//   "Git": {
+//     "ForwardedHeaders": { "Enabled": true, "KnownProxies": [ "127.0.0.1", "::1" ] }
+//   }
+var forwardedSection = builder.Configuration.GetSection("Git:ForwardedHeaders");
+var useForwardedHeaders = forwardedSection.GetValue<bool>("Enabled");
+if (useForwardedHeaders)
+{
+    var knownProxies = forwardedSection.GetSection("KnownProxies").Get<string[]>();
+    if (knownProxies is null || knownProxies.Length == 0)
+    {
+        knownProxies = ["127.0.0.1", "::1"];
+    }
+
+    builder.Services.Configure<ForwardedHeadersOptions>(forwarded =>
+    {
+        forwarded.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+
+        // The defaults trust the whole loopback network. Replacing them with an explicit list
+        // keeps "which addresses may speak for someone else" a decision, not a leftover.
+        forwarded.KnownProxies.Clear();
+        forwarded.KnownNetworks.Clear();
+        foreach (var proxy in knownProxies)
+        {
+            if (IPAddress.TryParse(proxy, out var address))
+            {
+                forwarded.KnownProxies.Add(address);
+            }
+        }
+    });
+}
 
 // --- Authentication ------------------------------------------------------------------
 // "Git:Auth:Mode" = "none" (default, automation-friendly) | "basic".
@@ -53,6 +97,13 @@ if (useBasic)
 }
 
 var app = builder.Build();
+
+// Before authentication, so the authentication handler and the git handler both see the
+// corrected scheme and client address.
+if (useForwardedHeaders)
+{
+    app.UseForwardedHeaders();
+}
 
 if (useBasic)
 {
@@ -101,7 +152,12 @@ var home = app.MapGet("/", (HttpContext ctx) =>
     return Results.Content(RenderHomePage(projectRoot, ctx.Request, canAccess), "text/html; charset=utf-8");
 });
 
-var endpoint = app.MapGitHttpBackend("/", options);
+// Built here rather than inside MapGitHttpBackend so the resolved backend path is available
+// for the startup log without resolving it a second time — and so a bad path fails before
+// that line is written, not after it.
+var invoker = new GitHttpBackendInvoker(options);
+
+var endpoint = app.MapGitHttpBackend("/", invoker);
 if (useBasic)
 {
     endpoint.RequireAuthorization();
@@ -110,7 +166,7 @@ if (useBasic)
 
 app.Logger.LogInformation(
     "Serving git repositories from {ProjectRoot} (auth mode: {AuthMode}, git-http-backend: {BackendPath})",
-    projectRoot, useBasic ? "basic" : "none", new GitHttpBackendInvoker(options).BackendPath);
+    projectRoot, useBasic ? "basic" : "none", invoker.BackendPath);
 
 await app.RunAsync();
 

@@ -43,6 +43,16 @@ public static class GitBackendLocator
         return null;
     }
 
+    /// <summary>
+    /// Returns the full path to the <c>git</c> client executable, or <c>null</c> if it cannot
+    /// be found. Tries <c>PATH</c> first, then the well-known Git for Windows install roots.
+    /// </summary>
+    /// <remarks>
+    /// Callers that already hold a resolved <c>git-http-backend</c> path should prefer the
+    /// <c>git</c> sitting next to it, so the client and the backend come from one installation.
+    /// </remarks>
+    public static string? LocateGit() => ResolveGitExecutable();
+
     static string? TryGitExecPath()
     {
         // Resolved to a full path first: with UseShellExecute = false a bare "git" would be

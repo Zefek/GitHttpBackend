@@ -43,6 +43,18 @@ public sealed class GitBackendOptions
     public IReadOnlyDictionary<string, string>? ExtraEnvironment { get; init; }
 
     /// <summary>
+    /// Create a bare repository under <see cref="ProjectRoot"/> when a push targets a name
+    /// that does not exist yet. Default <c>false</c>.
+    /// <para>
+    /// Creation runs after <see cref="Authorize"/>, so a caller can only create repositories
+    /// it would have been allowed to push to. A clone or fetch of an unknown name never
+    /// creates anything. The new repository gets <c>http.receivepack = true</c>, and a
+    /// <c>git-daemon-export-ok</c> marker when <see cref="ExportAll"/> is <c>false</c>.
+    /// </para>
+    /// </summary>
+    public bool AllowCreateOnPush { get; init; }
+
+    /// <summary>
     /// Optional authorization hook, evaluated before the request reaches git.
     /// Return <c>false</c> to reject with 403. Gating <c>git-receive-pack</c> (push)
     /// is the typical use.

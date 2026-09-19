@@ -33,7 +33,31 @@ sealed class GitTestServer : IAsyncDisposable
     /// Starts a server over a fresh project root. <paramref name="configure"/> receives that
     /// root and returns the options to map, so a test can set its own <c>Authorize</c> hook.
     /// </summary>
-    public static async Task<GitTestServer> StartAsync(Func<string, GitBackendOptions> configure)
+    public static Task<GitTestServer> StartAsync(Func<string, GitBackendOptions> configure)
+        => StartAsync(configure, configureBuilder: null, configurePipeline: null);
+
+    /// <summary>
+    /// Same, with hooks to register services and middleware ahead of the git endpoint — for
+    /// the cases where what is under test is how the host's pipeline changes what the library
+    /// sees.
+    /// </summary>
+    public static Task<GitTestServer> StartAsync(
+        Func<string, GitBackendOptions> configure,
+        Action<WebApplicationBuilder>? configureBuilder,
+        Action<WebApplication>? configurePipeline)
+        => StartCoreAsync((app, root) => app.MapGitHttpBackend("/", configure(root)), configureBuilder, configurePipeline);
+
+    /// <summary>
+    /// Same, but the caller builds the invoker — the overload a host uses when it wants the
+    /// resolved backend path for itself.
+    /// </summary>
+    public static Task<GitTestServer> StartWithInvokerAsync(Func<string, GitHttpBackendInvoker> configure)
+        => StartCoreAsync((app, root) => app.MapGitHttpBackend("/", configure(root)), configureBuilder: null, configurePipeline: null);
+
+    static async Task<GitTestServer> StartCoreAsync(
+        Action<WebApplication, string> map,
+        Action<WebApplicationBuilder>? configureBuilder,
+        Action<WebApplication>? configurePipeline)
     {
         var projectRoot = Path.Combine(
             Path.GetTempPath(), "githttpbackend-tests", Guid.NewGuid().ToString("n"));
@@ -46,9 +70,11 @@ sealed class GitTestServer : IAsyncDisposable
             builder.WebHost.UseUrls("http://127.0.0.1:0");   // port 0: the OS picks a free one
             builder.Logging.ClearProviders();
             builder.Services.AddLogging();
+            configureBuilder?.Invoke(builder);
 
             app = builder.Build();
-            app.MapGitHttpBackend("/", configure(projectRoot));
+            configurePipeline?.Invoke(app);
+            map(app, projectRoot);
             await app.StartAsync();
 
             var address = app.Urls.First();

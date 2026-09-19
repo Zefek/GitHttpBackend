@@ -33,7 +33,17 @@ sealed class GitTestServer : IAsyncDisposable
     /// Starts a server over a fresh project root. <paramref name="configure"/> receives that
     /// root and returns the options to map, so a test can set its own <c>Authorize</c> hook.
     /// </summary>
-    public static async Task<GitTestServer> StartAsync(Func<string, GitBackendOptions> configure)
+    public static Task<GitTestServer> StartAsync(Func<string, GitBackendOptions> configure)
+        => StartCoreAsync((app, root) => app.MapGitHttpBackend("/", configure(root)));
+
+    /// <summary>
+    /// Same, but the caller builds the invoker — the overload a host uses when it wants the
+    /// resolved backend path for itself.
+    /// </summary>
+    public static Task<GitTestServer> StartWithInvokerAsync(Func<string, GitHttpBackendInvoker> configure)
+        => StartCoreAsync((app, root) => app.MapGitHttpBackend("/", configure(root)));
+
+    static async Task<GitTestServer> StartCoreAsync(Action<WebApplication, string> map)
     {
         var projectRoot = Path.Combine(
             Path.GetTempPath(), "githttpbackend-tests", Guid.NewGuid().ToString("n"));
@@ -48,7 +58,7 @@ sealed class GitTestServer : IAsyncDisposable
             builder.Services.AddLogging();
 
             app = builder.Build();
-            app.MapGitHttpBackend("/", configure(projectRoot));
+            map(app, projectRoot);
             await app.StartAsync();
 
             var address = app.Urls.First();

@@ -41,7 +41,7 @@ sealed class GitTestServer : IAsyncDisposable
     /// the cases where what is under test is how the host's pipeline changes what the library
     /// sees.
     /// </summary>
-    public static async Task<GitTestServer> StartAsync(
+    public static Task<GitTestServer> StartAsync(
         Func<string, GitBackendOptions> configure,
         Action<WebApplicationBuilder>? configureBuilder,
         Action<WebApplication>? configurePipeline)
@@ -54,7 +54,10 @@ sealed class GitTestServer : IAsyncDisposable
     public static Task<GitTestServer> StartWithInvokerAsync(Func<string, GitHttpBackendInvoker> configure)
         => StartCoreAsync((app, root) => app.MapGitHttpBackend("/", configure(root)), configureBuilder: null, configurePipeline: null);
 
-    static async Task<GitTestServer> StartCoreAsync(Action<WebApplication, string> map)
+    static async Task<GitTestServer> StartCoreAsync(
+        Action<WebApplication, string> map,
+        Action<WebApplicationBuilder>? configureBuilder,
+        Action<WebApplication>? configurePipeline)
     {
         var projectRoot = Path.Combine(
             Path.GetTempPath(), "githttpbackend-tests", Guid.NewGuid().ToString("n"));

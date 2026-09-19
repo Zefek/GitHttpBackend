@@ -45,6 +45,16 @@ sealed class GitTestServer : IAsyncDisposable
         Func<string, GitBackendOptions> configure,
         Action<WebApplicationBuilder>? configureBuilder,
         Action<WebApplication>? configurePipeline)
+        => StartCoreAsync((app, root) => app.MapGitHttpBackend("/", configure(root)), configureBuilder, configurePipeline);
+
+    /// <summary>
+    /// Same, but the caller builds the invoker — the overload a host uses when it wants the
+    /// resolved backend path for itself.
+    /// </summary>
+    public static Task<GitTestServer> StartWithInvokerAsync(Func<string, GitHttpBackendInvoker> configure)
+        => StartCoreAsync((app, root) => app.MapGitHttpBackend("/", configure(root)), configureBuilder: null, configurePipeline: null);
+
+    static async Task<GitTestServer> StartCoreAsync(Action<WebApplication, string> map)
     {
         var projectRoot = Path.Combine(
             Path.GetTempPath(), "githttpbackend-tests", Guid.NewGuid().ToString("n"));
@@ -61,7 +71,7 @@ sealed class GitTestServer : IAsyncDisposable
 
             app = builder.Build();
             configurePipeline?.Invoke(app);
-            app.MapGitHttpBackend("/", configure(projectRoot));
+            map(app, projectRoot);
             await app.StartAsync();
 
             var address = app.Urls.First();

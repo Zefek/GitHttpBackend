@@ -45,6 +45,13 @@ public sealed class GitHttpBackendInvoker
     public string BackendPath => _backendPath;
 
     /// <summary>
+    /// The options this invoker was constructed with, so a host that owns the invoker does not
+    /// have to carry the options alongside it to reach the <see cref="GitBackendOptions.Authorize"/>
+    /// hook.
+    /// </summary>
+    public GitBackendOptions Options => _options;
+
+    /// <summary>
     /// Creates the target repository when <see cref="GitBackendOptions.AllowCreateOnPush"/>
     /// is set, <paramref name="request"/> is a push, and the repository does not exist yet.
     /// A clone or fetch never creates anything.

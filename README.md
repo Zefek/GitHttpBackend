@@ -31,6 +31,35 @@ app.MapGitHttpBackend("/", new GitBackendOptions
 
 Clone: `git clone http://localhost:5050/projekt.git`
 
+### What `ProjectRoot` publishes
+
+`ExportAll` defaults to **`true`**, which sets `GIT_HTTP_EXPORT_ALL` and tells
+`git-http-backend` to serve every repository under `ProjectRoot` without requiring a
+`git-daemon-export-ok` marker file.
+
+Say that plainly: **anything that appears under `ProjectRoot` is published.** A repository
+restored from a backup, cloned in for a look, or copied there for a minute becomes reachable
+the moment it lands — there is no second step that publishes it. Treat `ProjectRoot` as the
+set of repositories you intend to serve, and never as a scratch directory. Anything you want
+to keep private belongs somewhere else on disk, not in a subdirectory here.
+
+Git's marker-file mechanism exists precisely so that publication is deliberate. The default
+is `true` anyway, because it is what keeps the getting-started path at `git init --bare` and
+nothing else, and because a forgotten marker file is a repository that 404s for no visible
+reason. For a single-owner `ProjectRoot` that contains only what its owner put there, the
+marker adds ceremony and no protection.
+
+Set `ExportAll = false` to require the marker per repository:
+
+```csharp
+ExportAll = false,   // each repo needs a git-daemon-export-ok file to be served
+```
+
+The permissive default is the one that ships in 1.x and will not change inside that line —
+flipping it would silently 404 every existing deployment on upgrade, with no clue visible
+from the client side. `false` is the better default and is planned for 2.0.0, with a
+migration note.
+
 ## Enabling push
 
 `git-http-backend` refuses push unless the repo opts in:

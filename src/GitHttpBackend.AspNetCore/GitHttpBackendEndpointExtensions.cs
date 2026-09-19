@@ -23,17 +23,37 @@ public static class GitHttpBackendEndpointExtensions
         ArgumentNullException.ThrowIfNull(options);
 
         // Constructed once: resolves and validates the backend path up front.
-        var invoker = new GitHttpBackendInvoker(options);
+        return endpoints.MapGitHttpBackend(prefix, new GitHttpBackendInvoker(options));
+    }
+
+    /// <summary>
+    /// Maps Git Smart HTTP endpoints under <paramref name="prefix"/> using an invoker the
+    /// caller already built.
+    /// </summary>
+    /// <remarks>
+    /// Resolving <c>git-http-backend</c> starts a <c>git --exec-path</c> process and checks the
+    /// filesystem, so a host that also wants the resolved path — to log it at startup, say —
+    /// can build the invoker itself, read <see cref="GitHttpBackendInvoker.BackendPath"/>, and
+    /// hand the same instance here rather than paying for the lookup twice. It also means a
+    /// bad backend path fails before that log line rather than after it.
+    /// </remarks>
+    public static IEndpointConventionBuilder MapGitHttpBackend(
+        this IEndpointRouteBuilder endpoints, string prefix, GitHttpBackendInvoker invoker)
+    {
+        ArgumentNullException.ThrowIfNull(endpoints);
+        ArgumentNullException.ThrowIfNull(invoker);
 
         var normalizedPrefix = "/" + prefix.Trim('/');
         var pattern = (normalizedPrefix == "/" ? "" : normalizedPrefix) + "/{**gitPath}";
 
         return endpoints.MapMethods(pattern, new[] { HttpMethods.Get, HttpMethods.Post },
-            (HttpContext ctx) => HandleAsync(ctx, invoker, options));
+            (HttpContext ctx) => HandleAsync(ctx, invoker));
     }
 
-    static async Task HandleAsync(HttpContext ctx, GitHttpBackendInvoker invoker, GitBackendOptions options)
+    static async Task HandleAsync(HttpContext ctx, GitHttpBackendInvoker invoker)
     {
+        var options = invoker.Options;
+
         var logger = ctx.RequestServices.GetRequiredService<ILoggerFactory>()
             .CreateLogger("GitHttpBackend.AspNetCore");
 

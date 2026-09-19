@@ -101,7 +101,12 @@ var home = app.MapGet("/", (HttpContext ctx) =>
     return Results.Content(RenderHomePage(projectRoot, ctx.Request, canAccess), "text/html; charset=utf-8");
 });
 
-var endpoint = app.MapGitHttpBackend("/", options);
+// Built here rather than inside MapGitHttpBackend so the resolved backend path is available
+// for the startup log without resolving it a second time — and so a bad path fails before
+// that line is written, not after it.
+var invoker = new GitHttpBackendInvoker(options);
+
+var endpoint = app.MapGitHttpBackend("/", invoker);
 if (useBasic)
 {
     endpoint.RequireAuthorization();
@@ -110,7 +115,7 @@ if (useBasic)
 
 app.Logger.LogInformation(
     "Serving git repositories from {ProjectRoot} (auth mode: {AuthMode}, git-http-backend: {BackendPath})",
-    projectRoot, useBasic ? "basic" : "none", new GitHttpBackendInvoker(options).BackendPath);
+    projectRoot, useBasic ? "basic" : "none", invoker.BackendPath);
 
 await app.RunAsync();
 

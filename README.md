@@ -69,9 +69,15 @@ Binding to `0.0.0.0` instead puts credentials on the wire — do not.
 client ──HTTPS──▶ reverse proxy (IIS / nginx / Caddy) ──HTTP──▶ 127.0.0.1:5050
 ```
 
-**Tell the app it is behind a proxy.** Otherwise every request appears to come from
-`127.0.0.1`, so the audit trail records the proxy rather than the caller, and the home page
-offers `http://` clone URLs to someone who arrived over `https://`:
+**Tell the app it is behind a proxy.** Otherwise every connection appears to come from
+`127.0.0.1`, with two visible consequences:
+
+- `REMOTE_ADDR` handed to git, and every log line the handler writes, says `127.0.0.1` for
+  every caller. "Which machine fetched this configuration" becomes unanswerable.
+- The home page builds clone URLs from the incoming request, so someone who arrived over
+  `https://` is offered `git clone http://…`.
+
+Turning it on makes the sample read `X-Forwarded-For` and `X-Forwarded-Proto`:
 
 ```json
 "Git": {

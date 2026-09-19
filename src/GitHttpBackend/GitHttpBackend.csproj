@@ -16,4 +16,11 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- The CGI parsing and the repository creator are internal on purpose; they are also the
+         parts most worth pinning with tests. -->
+    <InternalsVisibleTo Include="GitHttpBackend.Tests" />
+    <InternalsVisibleTo Include="GitHttpBackend.AspNetCore.Tests" />
+  </ItemGroup>
+
 </Project>

@@ -23,26 +23,58 @@ public static class GitHttpBackendEndpointExtensions
         ArgumentNullException.ThrowIfNull(options);
 
         // Constructed once: resolves and validates the backend path up front.
-        var invoker = new GitHttpBackendInvoker(options);
+        return endpoints.MapGitHttpBackend(prefix, new GitHttpBackendInvoker(options));
+    }
+
+    /// <summary>
+    /// Maps Git Smart HTTP endpoints under <paramref name="prefix"/> using an invoker the
+    /// caller already built.
+    /// </summary>
+    /// <remarks>
+    /// Resolving <c>git-http-backend</c> starts a <c>git --exec-path</c> process and checks the
+    /// filesystem, so a host that also wants the resolved path — to log it at startup, say —
+    /// can build the invoker itself, read <see cref="GitHttpBackendInvoker.BackendPath"/>, and
+    /// hand the same instance here rather than paying for the lookup twice. It also means a
+    /// bad backend path fails before that log line rather than after it.
+    /// </remarks>
+    public static IEndpointConventionBuilder MapGitHttpBackend(
+        this IEndpointRouteBuilder endpoints, string prefix, GitHttpBackendInvoker invoker)
+    {
+        ArgumentNullException.ThrowIfNull(endpoints);
+        ArgumentNullException.ThrowIfNull(invoker);
 
         var normalizedPrefix = "/" + prefix.Trim('/');
         var pattern = (normalizedPrefix == "/" ? "" : normalizedPrefix) + "/{**gitPath}";
 
         return endpoints.MapMethods(pattern, new[] { HttpMethods.Get, HttpMethods.Post },
-            (HttpContext ctx) => HandleAsync(ctx, invoker, options));
+            (HttpContext ctx) => HandleAsync(ctx, invoker));
     }
 
-    static async Task HandleAsync(HttpContext ctx, GitHttpBackendInvoker invoker, GitBackendOptions options)
+    static async Task HandleAsync(HttpContext ctx, GitHttpBackendInvoker invoker)
     {
+        var options = invoker.Options;
+
         var logger = ctx.RequestServices.GetRequiredService<ILoggerFactory>()
             .CreateLogger("GitHttpBackend.AspNetCore");
 
         var gitPath = ctx.Request.RouteValues["gitPath"] as string ?? "";
+        var pathInfo = "/" + gitPath;
+
+        // Rejected here, before the Authorize hook and before any process starts: a path the
+        // validator and git could resolve differently is precisely the one an authorization
+        // decision must never be made about.
+        if (!GitRepositoryPath.TryParse(pathInfo, out _, out _))
+        {
+            logger.LogWarning("Git request rejected, malformed repository path: {Method} {PathInfo}",
+                ForLog(ctx.Request.Method), ForLog(pathInfo));
+            ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return;
+        }
 
         var request = new CgiRequest
         {
             Method = ctx.Request.Method,
-            PathInfo = "/" + gitPath,
+            PathInfo = pathInfo,
             QueryString = ctx.Request.QueryString.Value?.TrimStart('?') ?? "",
             ContentType = ctx.Request.ContentType,
             ContentLength = ctx.Request.ContentLength,
@@ -61,6 +93,33 @@ public static class GitHttpBackendEndpointExtensions
             return;
         }
 
+        // After Authorize, so authorization is what gates creation: a caller can only create a
+        // repository it would have been allowed to push to.
+        if (options.AllowCreateOnPush)
+        {
+            try
+            {
+                if (await invoker.EnsureRepositoryForPushAsync(request, ctx.RequestAborted))
+                {
+                    logger.LogInformation("Created repository on push: {PathInfo} (user {User})",
+                        ForLog(request.PathInfo), ForLog(request.RemoteUser) ?? "-");
+                }
+            }
+            catch (OperationCanceledException) when (ctx.RequestAborted.IsCancellationRequested)
+            {
+                throw;   // client went away; not a server error
+            }
+            catch (Exception ex)
+            {
+                // Falling through to the backend would produce a bare, reasonless 500 — the
+                // exact failure mode the stderr logging below was added to eliminate.
+                logger.LogError(ex, "Failed to create repository on push: {PathInfo} (user {User})",
+                    ForLog(request.PathInfo), ForLog(request.RemoteUser) ?? "-");
+                ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
+                return;
+            }
+        }
+
         logger.LogDebug("Invoking git-http-backend: {Method} PATH_INFO={PathInfo} QUERY_STRING={QueryString}",
             ForLog(request.Method), ForLog(request.PathInfo), ForLog(request.QueryString));
 
@@ -76,6 +135,23 @@ public static class GitHttpBackendEndpointExtensions
         ctx.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
 
         await response.Body.CopyToAsync(ctx.Response.Body, ctx.RequestAborted);
+
+        // The branch a push carries is only known once the pack has been relayed, so a
+        // repository created by this push gets its HEAD straightened out here. Best effort:
+        // the response is already on the wire, and a clone that checks out nothing is a
+        // smaller failure than one that never gets the objects.
+        if (options.AllowCreateOnPush && response.StatusCode < 400)
+        {
+            try
+            {
+                await invoker.AlignHeadAfterPushAsync(request, ctx.RequestAborted);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Could not point HEAD at the pushed branch for {PathInfo}",
+                    ForLog(request.PathInfo));
+            }
+        }
 
         // git-http-backend reports failures (die -> "Status: 500", empty body) only on stderr.
         // Without this the caller sees a bare 500 and the reason is lost.

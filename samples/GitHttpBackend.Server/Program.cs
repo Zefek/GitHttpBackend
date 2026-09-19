@@ -271,18 +271,6 @@ static DateTime LastWriteTime(string path)
 
 static string Enc(string s) => System.Net.WebUtility.HtmlEncode(s);
 
-// Extracts the repository name from a git PATH_INFO like "/projekt.git/info/refs".
-static string? RepoFromPath(string pathInfo)
-{
-    var seg = pathInfo.Trim('/');
-    if (seg.Length == 0)
-        return null;
-    int slash = seg.IndexOf('/');
-    if (slash >= 0)
-        seg = seg[..slash];
-    return NormalizeRepo(seg);
-}
-
 // Strips a trailing ".git" so config can list repos with or without the suffix.
 static string NormalizeRepo(string name)
     => name.EndsWith(".git", StringComparison.OrdinalIgnoreCase) ? name[..^4] : name;
@@ -307,13 +295,14 @@ static ClaimsPrincipal? Authenticate(Dictionary<string, UserAccess> users, Basic
 }
 
 // True when the authenticated user may access the repository named in the request path.
+// The name comes from GitRepositoryPath — the same parser the library routes on — so this
+// decision cannot be made about a different repository than the one git will open.
 static bool IsAuthorized(Dictionary<string, UserAccess> users, CgiRequest request)
 {
-    var repo = RepoFromPath(request.PathInfo);
-    return repo is not null
+    return GitRepositoryPath.TryParse(request.PathInfo, out var repo, out _)
         && request.RemoteUser is not null
         && users.TryGetValue(request.RemoteUser, out var entry)
-        && IsRepoAllowed(entry, repo);
+        && IsRepoAllowed(entry, NormalizeRepo(repo));
 }
 
 // Constant-time comparison so credential checks don't leak length/content via timing.

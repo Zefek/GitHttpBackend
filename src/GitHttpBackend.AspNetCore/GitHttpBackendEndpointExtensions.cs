@@ -38,11 +38,23 @@ public static class GitHttpBackendEndpointExtensions
             .CreateLogger("GitHttpBackend.AspNetCore");
 
         var gitPath = ctx.Request.RouteValues["gitPath"] as string ?? "";
+        var pathInfo = "/" + gitPath;
+
+        // Rejected here, before the Authorize hook and before any process starts: a path the
+        // validator and git could resolve differently is precisely the one an authorization
+        // decision must never be made about.
+        if (!GitRepositoryPath.TryParse(pathInfo, out _, out _))
+        {
+            logger.LogWarning("Git request rejected, malformed repository path: {Method} {PathInfo}",
+                ForLog(ctx.Request.Method), ForLog(pathInfo));
+            ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return;
+        }
 
         var request = new CgiRequest
         {
             Method = ctx.Request.Method,
-            PathInfo = "/" + gitPath,
+            PathInfo = pathInfo,
             QueryString = ctx.Request.QueryString.Value?.TrimStart('?') ?? "",
             ContentType = ctx.Request.ContentType,
             ContentLength = ctx.Request.ContentLength,

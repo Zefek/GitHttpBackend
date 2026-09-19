@@ -6,4 +6,8 @@
     <Project Path="src/GitHttpBackend.AspNetCore/GitHttpBackend.AspNetCore.csproj" />
     <Project Path="src/GitHttpBackend/GitHttpBackend.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/GitHttpBackend.AspNetCore.Tests/GitHttpBackend.AspNetCore.Tests.csproj" />
+    <Project Path="tests/GitHttpBackend.Tests/GitHttpBackend.Tests.csproj" />
+  </Folder>
 </Solution>

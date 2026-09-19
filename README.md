@@ -39,6 +39,37 @@ Clone: `git clone http://localhost:5050/projekt.git`
 git -C C:\git-repos\projekt.git config http.receivepack true
 ```
 
+### Create on push
+
+Creating a repository is otherwise the one step that needs a shell on the server.
+`AllowCreateOnPush` closes that gap: a push to a name that does not exist creates the bare
+repository, sets `http.receivepack = true` on it, and lets the push complete.
+
+```csharp
+var options = new GitBackendOptions
+{
+    ProjectRoot        = @"C:\git-repos",
+    AllowCreateOnPush  = true,     // default false
+};
+```
+
+In the sample it is `"Git:AllowCreateOnPush": true` in `appsettings.json`.
+
+It is **off by default** and deliberately narrow:
+
+- Creation runs *after* the `Authorize` hook, so only a caller allowed to push to that name
+  can trigger it. With Basic auth on, that means the name matches the user's `Repos` list.
+- A clone or fetch of an unknown name never creates anything — it keeps returning 404.
+- An existing repository is never re-initialised or reconfigured.
+- `HEAD` follows the branch you pushed. `git init --bare` writes `HEAD -> refs/heads/master`
+  and `receive-pack` never revises it, so pushing `main` would otherwise leave every later
+  clone checking out nothing. A `HEAD` that already resolves is left alone.
+- Concurrent pushes to the same new name are serialised, so no half-created repository.
+- When `ExportAll` is `false`, the new repository gets a `git-daemon-export-ok` marker, so it
+  is reachable under either export mode.
+
+With the option off, a push to an unknown name behaves exactly as before: 404.
+
 ## Authentication
 
 Auth is **opt-in** and **provider-agnostic** — the library never hardcodes a scheme.

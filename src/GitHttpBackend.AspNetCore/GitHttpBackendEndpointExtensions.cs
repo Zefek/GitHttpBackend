@@ -73,6 +73,33 @@ public static class GitHttpBackendEndpointExtensions
             return;
         }
 
+        // After Authorize, so authorization is what gates creation: a caller can only create a
+        // repository it would have been allowed to push to.
+        if (options.AllowCreateOnPush)
+        {
+            try
+            {
+                if (await invoker.EnsureRepositoryForPushAsync(request, ctx.RequestAborted))
+                {
+                    logger.LogInformation("Created repository on push: {PathInfo} (user {User})",
+                        ForLog(request.PathInfo), ForLog(request.RemoteUser) ?? "-");
+                }
+            }
+            catch (OperationCanceledException) when (ctx.RequestAborted.IsCancellationRequested)
+            {
+                throw;   // client went away; not a server error
+            }
+            catch (Exception ex)
+            {
+                // Falling through to the backend would produce a bare, reasonless 500 — the
+                // exact failure mode the stderr logging below was added to eliminate.
+                logger.LogError(ex, "Failed to create repository on push: {PathInfo} (user {User})",
+                    ForLog(request.PathInfo), ForLog(request.RemoteUser) ?? "-");
+                ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
+                return;
+            }
+        }
+
         logger.LogDebug("Invoking git-http-backend: {Method} PATH_INFO={PathInfo} QUERY_STRING={QueryString}",
             ForLog(request.Method), ForLog(request.PathInfo), ForLog(request.QueryString));
 
@@ -88,6 +115,23 @@ public static class GitHttpBackendEndpointExtensions
         ctx.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
 
         await response.Body.CopyToAsync(ctx.Response.Body, ctx.RequestAborted);
+
+        // The branch a push carries is only known once the pack has been relayed, so a
+        // repository created by this push gets its HEAD straightened out here. Best effort:
+        // the response is already on the wire, and a clone that checks out nothing is a
+        // smaller failure than one that never gets the objects.
+        if (options.AllowCreateOnPush && response.StatusCode < 400)
+        {
+            try
+            {
+                await invoker.AlignHeadAfterPushAsync(request, ctx.RequestAborted);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Could not point HEAD at the pushed branch for {PathInfo}",
+                    ForLog(request.PathInfo));
+            }
+        }
 
         // git-http-backend reports failures (die -> "Status: 500", empty body) only on stderr.
         // Without this the caller sees a bare 500 and the reason is lost.

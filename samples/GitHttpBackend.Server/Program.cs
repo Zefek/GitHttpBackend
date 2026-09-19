@@ -64,11 +64,17 @@ if (useBasic)
 // not own the repository folders, otherwise git aborts with "dubious ownership" (empty HTTP 500).
 var safeDirectories = builder.Configuration.GetSection("Git:SafeDirectories").Get<string[]>();
 
+// "Git:AllowCreateOnPush": true — pushing to a name that does not exist creates the bare
+// repository, so a new machine's configuration repo needs no shell on the server. Off by
+// default; with Basic auth on, only a user allowed to push to that name can trigger it.
+var allowCreateOnPush = builder.Configuration.GetValue<bool>("Git:AllowCreateOnPush");
+
 var options = new GitBackendOptions
 {
     ProjectRoot = projectRoot,
     ExportAll = true,
     SafeDirectories = safeDirectories,
+    AllowCreateOnPush = allowCreateOnPush,
     // BackendPath = null -> auto-detected from the installed Git.
 
     // Per-user repo authorization. Only enforced when Basic auth is on; runs after

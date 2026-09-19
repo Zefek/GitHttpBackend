@@ -13,6 +13,7 @@ public sealed class GitHttpBackendInvoker
     readonly GitBackendOptions _options;
     readonly string _backendPath;
     readonly string _execDir;
+    readonly GitRepositoryCreator? _creator;
 
     public GitHttpBackendInvoker(GitBackendOptions options)
     {
@@ -31,10 +32,88 @@ public sealed class GitHttpBackendInvoker
         _execDir = Path.GetDirectoryName(_backendPath)
             ?? throw new InvalidOperationException(
                 $"The git-http-backend path '{_backendPath}' has no parent directory.");
+
+        // Resolved up front rather than on the first push, so a host that asked for
+        // create-on-push finds out at startup that it cannot do it.
+        if (options.AllowCreateOnPush)
+        {
+            _creator = new GitRepositoryCreator(ResolveGitClient(_execDir), _execDir, options);
+        }
     }
 
     /// <summary>The resolved path to the git-http-backend executable.</summary>
     public string BackendPath => _backendPath;
+
+    /// <summary>
+    /// Creates the target repository when <see cref="GitBackendOptions.AllowCreateOnPush"/>
+    /// is set, <paramref name="request"/> is a push, and the repository does not exist yet.
+    /// A clone or fetch never creates anything.
+    /// <para>
+    /// Call this after the authorization decision and before <see cref="InvokeAsync"/>:
+    /// it creates whatever the caller asked for, so authorization is what gates it.
+    /// </para>
+    /// </summary>
+    /// <returns><c>true</c> when a repository was created.</returns>
+    /// <exception cref="InvalidOperationException">Creation was attempted and failed.</exception>
+    public async Task<bool> EnsureRepositoryForPushAsync(CgiRequest request, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (_creator is null)
+            return false;
+
+        // The name comes from the one parser the routing and the authorization hook also use;
+        // an invalid path never gets as far as touching the filesystem.
+        if (!GitRepositoryPath.TryParse(request.PathInfo, out var repository, out var rest))
+            return false;
+
+        if (!GitRepositoryCreator.IsPush(request.Method, rest, request.QueryString))
+            return false;
+
+        return await _creator.EnsureExistsAsync(repository, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Call after a <c>git-receive-pack</c> POST has been relayed: points <c>HEAD</c> at the
+    /// branch that was pushed, when the repository still has the unborn <c>HEAD</c> that
+    /// <c>git init --bare</c> left behind. Without it, a repository created by a push of
+    /// <c>main</c> clones out empty. No-op unless
+    /// <see cref="GitBackendOptions.AllowCreateOnPush"/> is set.
+    /// </summary>
+    public async Task AlignHeadAfterPushAsync(CgiRequest request, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (_creator is null)
+            return;
+
+        if (!string.Equals(request.Method, "POST", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        if (!GitRepositoryPath.TryParse(request.PathInfo, out var repository, out var rest)
+            || !string.Equals(rest, "/git-receive-pack", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        await _creator.AlignHeadAsync(repository, ct).ConfigureAwait(false);
+    }
+
+    // Git for Windows ships git.exe inside libexec/git-core next to git-http-backend, and so
+    // do the Linux packages. Taking it from there keeps the client and the backend on one
+    // installation; the PATH search is only a fallback for layouts that split them.
+    static string ResolveGitClient(string execDir)
+    {
+        var exe = OperatingSystem.IsWindows() ? "git.exe" : "git";
+        var candidate = Path.Combine(execDir, exe);
+        if (File.Exists(candidate))
+            return candidate;
+
+        return GitBackendLocator.LocateGit()
+            ?? throw new InvalidOperationException(
+                "AllowCreateOnPush is enabled but the git client executable was not found. "
+                + "Install Git, or leave AllowCreateOnPush off.");
+    }
 
     public async Task<GitBackendResponse> InvokeAsync(CgiRequest request, CancellationToken ct = default)
     {
@@ -144,7 +223,7 @@ public sealed class GitHttpBackendInvoker
         }
     }
 
-    static void AppendSafeDirectories(IDictionary<string, string?> env, IReadOnlyList<string> safeDirectories)
+    internal static void AppendSafeDirectories(IDictionary<string, string?> env, IReadOnlyList<string> safeDirectories)
     {
         var index = env.TryGetValue("GIT_CONFIG_COUNT", out var existing)
             && int.TryParse(existing, NumberStyles.Integer, CultureInfo.InvariantCulture, out var count)

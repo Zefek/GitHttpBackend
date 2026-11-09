@@ -51,6 +51,8 @@ public sealed class GitHttpBackendInvoker
     /// </summary>
     public GitBackendOptions Options => _options;
 
+    internal string ExecDir => _execDir;
+
     /// <summary>
     /// Creates the target repository when <see cref="GitBackendOptions.AllowCreateOnPush"/>
     /// is set, <paramref name="request"/> is a push, and the repository does not exist yet.
@@ -109,7 +111,7 @@ public sealed class GitHttpBackendInvoker
     // Git for Windows ships git.exe inside libexec/git-core next to git-http-backend, and so
     // do the Linux packages. Taking it from there keeps the client and the backend on one
     // installation; the PATH search is only a fallback for layouts that split them.
-    static string ResolveGitClient(string execDir)
+    internal static string ResolveGitClient(string execDir)
     {
         var exe = OperatingSystem.IsWindows() ? "git.exe" : "git";
         var candidate = Path.Combine(execDir, exe);
@@ -118,8 +120,8 @@ public sealed class GitHttpBackendInvoker
 
         return GitBackendLocator.LocateGit()
             ?? throw new InvalidOperationException(
-                "AllowCreateOnPush is enabled but the git client executable was not found. "
-                + "Install Git, or leave AllowCreateOnPush off.");
+                "The git client executable was not found next to git-http-backend or on PATH. "
+                + "Install Git, or leave AllowCreateOnPush off and do not map the snapshot endpoint.");
     }
 
     public async Task<GitBackendResponse> InvokeAsync(CgiRequest request, CancellationToken ct = default)

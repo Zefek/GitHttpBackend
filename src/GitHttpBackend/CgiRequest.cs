@@ -47,4 +47,8 @@ public sealed class CgiRequest
 
     /// <summary>The request body stream. Empty (but non-null) for GET requests.</summary>
     public required Stream Body { get; init; }
+
+    public bool IsPush =>
+        GitRepositoryPath.TryParse(PathInfo, out _, out var rest)
+        && GitRepositoryCreator.IsPush(Method, rest, QueryString);
 }

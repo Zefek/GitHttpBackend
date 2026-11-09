@@ -54,6 +54,14 @@ sealed class GitTestServer : IAsyncDisposable
     public static Task<GitTestServer> StartWithInvokerAsync(Func<string, GitHttpBackendInvoker> configure)
         => StartCoreAsync((app, root) => app.MapGitHttpBackend("/", configure(root)), configureBuilder: null, configurePipeline: null);
 
+    public static Task<GitTestServer> StartWithSnapshotAsync(Func<string, GitBackendOptions> configure)
+        => StartCoreAsync((app, root) =>
+        {
+            var invoker = new GitHttpBackendInvoker(configure(root));
+            app.MapGitHttpBackend("/", invoker);
+            app.MapGitSnapshot("/", invoker);
+        }, configureBuilder: null, configurePipeline: null);
+
     static async Task<GitTestServer> StartCoreAsync(
         Action<WebApplication, string> map,
         Action<WebApplicationBuilder>? configureBuilder,

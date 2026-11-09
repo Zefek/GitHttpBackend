@@ -61,7 +61,8 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           for proj in src/GitHttpBackend/GitHttpBackend.csproj \
-                      src/GitHttpBackend.AspNetCore/GitHttpBackend.AspNetCore.csproj; do
+                      src/GitHttpBackend.AspNetCore/GitHttpBackend.AspNetCore.csproj \
+                      src/GitHttpBackend.Configuration/GitHttpBackend.Configuration.csproj; do
             dotnet pack "$proj" \
               --configuration Release \
               -p:Version="$VERSION" \

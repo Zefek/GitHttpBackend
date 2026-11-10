@@ -78,7 +78,9 @@ public static class GitSnapshotEndpointExtensions
         catch (Exception ex)
         {
             logger.LogError(ex, "Snapshot failed: {Repository} ref={Ref} path={Path} (user {User})",
-                GitHttpBackendEndpointExtensions.ForLog(repository), reference, path,
+                GitHttpBackendEndpointExtensions.ForLog(repository),
+                GitHttpBackendEndpointExtensions.ForLog(reference),
+                GitHttpBackendEndpointExtensions.ForLog(path),
                 GitHttpBackendEndpointExtensions.ForLog(user) ?? "-");
             ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
             return;

@@ -32,7 +32,7 @@ public static class ConfigRepositoryExtensions
             return null;
 
         var cacheDirectory = string.IsNullOrWhiteSpace(options.CacheDirectory)
-            ? ConfigRepositoryCache.DefaultDirectory(options)
+            ? ConfigRepositoryCache.DefaultDirectory(options.Url, options.Path)
             : options.CacheDirectory;
 
         var loader = new ConfigRepositoryLoader(options, handler, () => decryptor(options.Thumbprint), cacheDirectory)

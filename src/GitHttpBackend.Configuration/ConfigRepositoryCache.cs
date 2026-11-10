@@ -13,10 +13,10 @@ internal sealed class ConfigRepositoryCache
 
     string FilePath => Path.Combine(_directory, "snapshot.json");
 
-    public static string DefaultDirectory(ConfigRepositoryOptions options)
+    public static string DefaultDirectory(string url, string path)
     {
-        var uri = new Uri(options.Url!);
-        var name = $"{uri.Host}{uri.AbsolutePath}_{options.Path}";
+        var uri = new Uri(url);
+        var name = $"{uri.Host}{uri.AbsolutePath}_{path}";
         var invalid = Path.GetInvalidFileNameChars();
         var safe = new string(name.Select(c => invalid.Contains(c) || c is '/' or '\\' ? '_' : c).ToArray()).Trim('_');
 

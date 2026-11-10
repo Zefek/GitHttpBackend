@@ -13,6 +13,7 @@ internal sealed record Snapshot(string Commit, List<SnapshotFile> Files);
 internal sealed class ConfigRepositoryLoader
 {
     readonly ConfigRepositoryOptions _options;
+    readonly string _url;
     readonly HttpMessageHandler _handler;
     readonly Lazy<CmsDecryptor> _decryptor;
     readonly ConfigRepositoryCache _cache;
@@ -24,6 +25,7 @@ internal sealed class ConfigRepositoryLoader
             throw new ArgumentException("ConfigRepository Url is not set.", nameof(options));
 
         _options = options;
+        _url = options.Url;
         _handler = handler;
         _decryptor = new Lazy<CmsDecryptor>(decryptor);
         _cache = new ConfigRepositoryCache(cacheDirectory);
@@ -77,34 +79,41 @@ internal sealed class ConfigRepositoryLoader
             Timeout = TimeSpan.FromSeconds(Math.Max(1, _options.TimeoutSeconds)),
         };
 
-        var url = $"{_options.Url!.TrimEnd('/')}/-/snapshot"
+        var url = $"{_url.TrimEnd('/')}/-/snapshot"
             + $"?ref={Uri.EscapeDataString(_options.Ref)}&path={Uri.EscapeDataString(_options.Path.Trim('/'))}";
         var authorization = Authorization();
         var attempts = Math.Max(1, _options.Attempts);
 
-        for (var attempt = 1; ; attempt++)
+        for (var attempt = 1; attempt < attempts; attempt++)
         {
             try
             {
-                using var request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Authorization = authorization;
-                using var response = client.SendAsync(request).GetAwaiter().GetResult();
-
-                if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized
-                    or HttpStatusCode.Forbidden or HttpStatusCode.NotFound)
-                {
-                    throw new InvalidOperationException(
-                        $"{SafeUrl()} answered {(int)response.StatusCode} {response.StatusCode} for ref '{_options.Ref}' and path '{_options.Path}'.");
-                }
-
-                response.EnsureSuccessStatusCode();
-                return response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult();
+                return Send(client, url, authorization);
             }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && attempt < attempts)
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
             {
                 Thread.Sleep(RetryDelay * attempt);
             }
         }
+
+        return Send(client, url, authorization);
+    }
+
+    byte[] Send(HttpClient client, string url, AuthenticationHeaderValue? authorization)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = authorization;
+        using var response = client.SendAsync(request).GetAwaiter().GetResult();
+
+        if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized
+            or HttpStatusCode.Forbidden or HttpStatusCode.NotFound)
+        {
+            throw new InvalidOperationException(
+                $"{SafeUrl()} answered {(int)response.StatusCode} {response.StatusCode} for ref '{_options.Ref}' and path '{_options.Path}'.");
+        }
+
+        response.EnsureSuccessStatusCode();
+        return response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult();
     }
 
     AuthenticationHeaderValue? Authorization()
@@ -114,17 +123,17 @@ internal sealed class ConfigRepositoryLoader
 
         var password = string.IsNullOrWhiteSpace(_options.PasswordCms)
             ? _options.Password ?? ""
-            : DecryptPassword();
+            : DecryptPassword(_options.PasswordCms);
 
         return new AuthenticationHeaderValue(
             "Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_options.User}:{password}")));
     }
 
-    string DecryptPassword()
+    string DecryptPassword(string passwordCms)
     {
         try
         {
-            return _decryptor.Value.DecryptString(_options.PasswordCms!, "ConfigRepo PasswordCms");
+            return _decryptor.Value.DecryptString(passwordCms, "ConfigRepo PasswordCms");
         }
         catch (Exception ex)
         {
@@ -189,7 +198,7 @@ internal sealed class ConfigRepositoryLoader
 
     string SafeUrl()
     {
-        var builder = new UriBuilder(_options.Url!) { UserName = "", Password = "" };
+        var builder = new UriBuilder(_url) { UserName = "", Password = "" };
         return builder.Uri.ToString().TrimEnd('/');
     }
 }

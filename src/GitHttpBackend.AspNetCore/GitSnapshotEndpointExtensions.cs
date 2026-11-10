@@ -30,7 +30,7 @@ public static class GitSnapshotEndpointExtensions
         var reference = ctx.Request.Query["ref"].ToString() is { Length: > 0 } r ? r : "HEAD";
         var path = ctx.Request.Query["path"].ToString().Trim('/');
 
-        if (!GitRepositoryPath.TryParse("/" + repository, out _, out var rest) || rest.Length != 0
+        if (!GitRepositoryPath.TryParse(repository, out _, out var rest) || rest.Length != 0
             || !GitSnapshotReader.IsValidReference(reference)
             || !GitSnapshotReader.IsValidPath(path))
         {

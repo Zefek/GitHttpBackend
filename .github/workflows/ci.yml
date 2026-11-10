@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "11.0-preview" ]
     paths-ignore: [ "**.md", "LICENSE" ]
   pull_request:
   workflow_dispatch:

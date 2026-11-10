@@ -8,4 +8,5 @@ sealed class UserAccess
 {
     public string Password { get; set; } = "";
     public string[] Repos { get; set; } = [];
+    public bool ReadOnly { get; set; }
 }

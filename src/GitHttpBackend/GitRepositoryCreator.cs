@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
 
 namespace GitHttpBackend;
 
@@ -15,15 +14,13 @@ internal sealed class GitRepositoryCreator
     static readonly ConcurrentDictionary<string, SemaphoreSlim> Locks =
         new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
 
-    readonly string _gitPath;
-    readonly string _execDir;
     readonly GitBackendOptions _options;
+    readonly GitProcess _git;
 
     public GitRepositoryCreator(string gitPath, string execDir, GitBackendOptions options)
     {
-        _gitPath = gitPath;
-        _execDir = execDir;
         _options = options;
+        _git = new GitProcess(gitPath, execDir, options);
     }
 
     /// <summary>
@@ -86,7 +83,7 @@ internal sealed class GitRepositoryCreator
     // The name git-http-backend's enter_repo() would find: what the client asked for, or the
     // same name with the .git suffix added or removed. Creating a second directory for a
     // repository that is already reachable under one of those names must not happen.
-    static string? ExistingRepository(string rootFull, string repository)
+    internal static string? ExistingRepository(string rootFull, string repository)
     {
         foreach (var candidate in Candidates(repository))
         {
@@ -194,47 +191,8 @@ internal sealed class GitRepositoryCreator
     async Task<(int ExitCode, string StdOut, string StdErr)> ExecuteGitAsync(
         CancellationToken ct, params string[] arguments)
     {
-        var psi = new ProcessStartInfo
-        {
-            FileName = _gitPath,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            WorkingDirectory = _execDir,
-        };
-
-        foreach (var argument in arguments)
-        {
-            psi.ArgumentList.Add(argument);
-        }
-
-        // Same environment the backend process gets, for the same reason: without
-        // safe.directory a service account hits "dubious ownership" the moment git opens the
-        // repository it just initialised.
-        psi.Environment["GIT_EXEC_PATH"] = _execDir;
-        if (_options.ExtraEnvironment is not null)
-        {
-            foreach (var kv in _options.ExtraEnvironment)
-            {
-                psi.Environment[kv.Key] = kv.Value;
-            }
-        }
-        if (_options.SafeDirectories is { Count: > 0 } safeDirectories)
-        {
-            GitHttpBackendInvoker.AppendSafeDirectories(psi.Environment, safeDirectories);
-        }
-
-        using var process = Process.Start(psi)
-            ?? throw new InvalidOperationException($"Failed to start '{_gitPath}'.");
-
-        var stderrTask = process.StandardError.ReadToEndAsync(ct);
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
-        await process.WaitForExitAsync(ct).ConfigureAwait(false);
-
-        return (process.ExitCode,
-            (await stdoutTask.ConfigureAwait(false)).Trim(),
-            (await stderrTask.ConfigureAwait(false)).Trim());
+        var result = await _git.RunAsync(ct, arguments).ConfigureAwait(false);
+        return (result.ExitCode, System.Text.Encoding.UTF8.GetString(result.StdOut).Trim(), result.StdErr);
     }
 
     static bool HasService(string queryString, string service)

@@ -180,6 +180,6 @@ public static class GitHttpBackendEndpointExtensions
     // messages, which is the same request data taking a detour through the child process.
     // Replace(char, char) returns the same instance when there is nothing to replace, so the
     // common case allocates nothing.
-    static string? ForLog(string? value)
+    internal static string? ForLog(string? value)
         => value?.Replace('\r', ' ').Replace('\n', ' ');
 }

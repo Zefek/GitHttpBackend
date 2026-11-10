@@ -164,9 +164,11 @@ var home = app.MapGet("/", (HttpContext ctx) =>
 var invoker = new GitHttpBackendInvoker(options);
 
 var endpoint = app.MapGitHttpBackend("/", invoker);
+var snapshot = app.MapGitSnapshot("/", invoker);
 if (useBasic)
 {
     endpoint.RequireAuthorization();
+    snapshot.RequireAuthorization();
     home.RequireAuthorization();
 }
 
@@ -370,7 +372,8 @@ static bool IsAuthorized(Dictionary<string, UserAccess> users, CgiRequest reques
     return GitRepositoryPath.TryParse(request.PathInfo, out var repo, out _)
         && request.RemoteUser is not null
         && users.TryGetValue(request.RemoteUser, out var entry)
-        && IsRepoAllowed(entry, NormalizeRepo(repo));
+        && IsRepoAllowed(entry, NormalizeRepo(repo))
+        && !(entry.ReadOnly && request.IsPush);
 }
 
 // Constant-time comparison so credential checks don't leak length/content via timing.

@@ -289,6 +289,18 @@ git clone https://ci:$TOKEN@git.internal/projekt.git
 The handler issues a proper `401 WWW-Authenticate: Basic` challenge, so interactive git
 also prompts / uses its credential helper.
 
+### Read-only users
+
+`"ReadOnly": true` lets a user clone, fetch and read snapshots of the listed repos but not
+push to them — the shape an application that only reads its configuration needs:
+
+```json
+"config-reader": { "Password": "…", "Repos": [ "Home" ], "ReadOnly": true }
+```
+
+A push by such a user gets **403**. `CgiRequest.IsPush` is the test the sample uses, and it
+is available to any `Authorize` hook.
+
 ### Entra ID / Microsoft Identity
 
 An interactive OIDC browser flow does **not** fit `git clone` in CI. Microsoft Identity
@@ -307,6 +319,75 @@ and keep the `endpoint.RequireAuthorization()` line. No library change is requir
 The sample gates the whole endpoint. To allow anonymous clone but require auth for push,
 use `GitBackendOptions.Authorize` (it sees `PathInfo` — `git-receive-pack` is push) or a
 custom authorization policy keyed on the path. Not wired in the sample yet.
+
+## Reading a directory without git
+
+An application that only needs a few files from a repository — its configuration, say —
+should not have to carry a git client and a working copy for it. The snapshot endpoint
+returns the files of one directory at one commit:
+
+```
+GET /{repo}/-/snapshot?ref=main&path=OdectyMVC
+```
+
+```json
+{
+  "commit": "4117c00031fb47475eae731fcfeebf1b7cea9b4d",
+  "files": [ { "name": "appsettings.json.cms", "content": "<base64>" } ]
+}
+```
+
+- `ref` is a branch, tag or commit name and defaults to `HEAD`. `path` is a directory and
+  defaults to the repository root. Only regular files directly in that directory are
+  returned; subdirectories are not.
+- Every file comes from the same commit, so a push landing mid-request cannot mix versions.
+- `ETag` is the commit, and a matching `If-None-Match` returns **304** — cheap polling.
+- Authorization is the same decision as a fetch of the repository: the `Authorize` hook sees
+  a `git-upload-pack` request for it. A read-only user can therefore read snapshots.
+- **400** for a malformed repository, `ref` or `path`; **404** when the repository is not
+  served (including a missing `git-daemon-export-ok` with `ExportAll` off), the ref does not
+  resolve, or the path is not a directory.
+
+Hosts opt in next to the Smart HTTP endpoint, sharing one invoker:
+
+```csharp
+var invoker = new GitHttpBackendInvoker(options);
+app.MapGitHttpBackend("/", invoker).RequireAuthorization();
+app.MapGitSnapshot("/", invoker).RequireAuthorization();
+```
+
+### Loading application configuration from a snapshot
+
+`GitHttpBackend.Configuration` is the client side: an application reads its settings from a
+directory of the configuration repository at startup.
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+builder.AddConfigRepository(args);
+```
+
+It does nothing unless `ConfigRepo:Url` is set, so local development keeps its own files.
+On a server the bootstrap comes from environment variables or the command line:
+
+| Key | Example |
+|---|---|
+| `ConfigRepo__Url` | `https://git.home/Home` |
+| `ConfigRepo__Ref` | `master` (default `HEAD`) |
+| `ConfigRepo__Path` | `OdectyMVC` |
+| `ConfigRepo__User` | `cfg-reader` |
+| `ConfigRepo__PasswordCms` | the password, CMS-encrypted to the certificate, base64 on one line |
+| `ConfigRepo__Thumbprint` | certificate in `LocalMachine\My` or `CurrentUser\My` |
+
+- Every `*.json` and `*.json.cms` file in the directory is loaded; `.cms` files are decrypted
+  with the certificate (the format `Protect-CmsMessage` writes). Other files are ignored.
+- A key defined in two files stops startup with an error naming the key and both files.
+- Environment variables and the command line still override the repository.
+- The last good snapshot is cached — still encrypted — under
+  `%ProgramData%\GitHttpBackend.Configuration` (or `ConfigRepo__CacheDirectory`). When the
+  server cannot be reached or rejects the request, the application starts from the cache and
+  logs a warning. Without a cache it does not start.
+- The commit, source (remote or cache) and file list are logged at startup and registered as
+  `ConfigRepositoryInfo` for health checks.
 
 ## Running as a service account
 

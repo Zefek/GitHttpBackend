@@ -43,6 +43,7 @@ jobs:
         run: |
           dotnet pack src/GitHttpBackend/GitHttpBackend.csproj --configuration Release --no-build --output artifacts
           dotnet pack src/GitHttpBackend.AspNetCore/GitHttpBackend.AspNetCore.csproj --configuration Release --no-build --output artifacts
+          dotnet pack src/GitHttpBackend.Configuration/GitHttpBackend.Configuration.csproj --configuration Release --no-build --output artifacts
 
       # Stejné parametry jako samples/.../PublishProfiles/FolderProfile.pubxml.
       # Self-contained proto, aby na cílovém serveru nemusel být .NET 10 runtime.

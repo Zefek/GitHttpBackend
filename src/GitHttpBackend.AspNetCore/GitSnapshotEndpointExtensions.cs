@@ -104,7 +104,7 @@ public static class GitSnapshotEndpointExtensions
         }
 
         logger.LogInformation("Snapshot served: {Repository} ref={Ref} path={Path} commit={Commit} files={Count} (user {User})",
-            GitHttpBackendEndpointExtensions.ForLog(repository), reference, GitHttpBackendEndpointExtensions.ForLog(path), snapshot.Commit,
+            GitHttpBackendEndpointExtensions.ForLog(repository), GitHttpBackendEndpointExtensions.ForLog(reference), GitHttpBackendEndpointExtensions.ForLog(path), snapshot.Commit,
             snapshot.Files.Count, GitHttpBackendEndpointExtensions.ForLog(user) ?? "-");
 
         await ctx.Response.WriteAsJsonAsync(snapshot, ctx.RequestAborted);
